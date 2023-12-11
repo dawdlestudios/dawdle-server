@@ -167,9 +167,13 @@ impl russh::server::Handler for SshSession {
             bail!("command is not valid utf8");
         };
 
-        self.command = Some(command.clone());
+        // we disable echo here to prevent ssh from echoing bootstrap commands
+        // TODO: this is a hack, we should probably do something else
+        self.command = Some("stty -echo\n".to_string() + &command);
+        // self.command = Some("".to_string() + &command);
 
         let (self, session) = self.shell_request(channel, session).await?;
+
         Ok((self, session))
     }
 
@@ -185,11 +189,7 @@ impl russh::server::Handler for SshSession {
                 bail!("channel not found");
             };
 
-            let mut attach = self.containers.attach("test", self.command.take()).await?;
-
-            // if let Some(command) = self.command.take() {
-            //     attach.input.0.write_all(command.as_bytes()).await?;
-            // }
+            let attach = self.containers.attach("test", self.command.clone()).await?;
 
             channel.pty = Some(Pty {
                 id: attach.id.clone(),
@@ -275,11 +275,10 @@ impl russh::server::Handler for SshSession {
             };
 
             if let Some(pty) = &channel.pty {
-                info!("lock pty.input");
                 let mut input = pty.input.lock().await;
 
                 match input.0.write_all(data).await {
-                    Ok(_) => log::info!("wrote to pty"),
+                    Ok(_) => {}
                     Err(e) => log::error!("failed to write to pty: {}", e),
                 }
 
