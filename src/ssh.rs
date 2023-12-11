@@ -1,34 +1,52 @@
+use core::panic;
+use std::sync::Arc;
+
+use bollard::container::LogOutput;
 use color_eyre::eyre::{self, bail, Result};
 use dashmap::DashMap;
-use log::info;
+use futures::TryStreamExt;
+use log::{error, info};
+use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 
+use crate::containers::{AttachInput, Containers};
 use crate::sftp::SftpSession;
 use async_trait::async_trait;
-use pty_process::OwnedWritePty;
 use russh::server::{Auth, Msg, Session};
-use russh::{Channel, ChannelId};
+use russh::{Channel, ChannelId, CryptoVec};
+
+struct Pty {
+    id: String,
+    input: Mutex<AttachInput>,
+}
 
 pub struct SshChannel {
     handle: Channel<Msg>,
-    pty: Option<OwnedWritePty>,
+
+    pty: Option<Pty>,
     pty_term: Option<String>,
     pty_modes: Option<Vec<(russh::Pty, u32)>>,
     pty_size: Option<(u16, u16)>,
 }
 
 pub struct SshSession {
-    channels: DashMap<ChannelId, SshChannel>,
-}
-
-impl Default for SshSession {
-    fn default() -> Self {
-        Self {
-            channels: DashMap::new(),
-        }
-    }
+    /// The command to run, if any.
+    command: Option<String>,
+    term: String,
+    containers: Containers,
+    channels: Arc<DashMap<ChannelId, SshChannel>>,
 }
 
 impl SshSession {
+    pub fn new(containers: Containers) -> Self {
+        Self {
+            command: None,
+            term: "xterm".to_string(),
+            containers,
+            channels: Arc::new(DashMap::new()),
+        }
+    }
+
     pub async fn remove_channel(&mut self, channel_id: ChannelId) -> Option<SshChannel> {
         Some(self.channels.remove(&channel_id)?.1)
     }
@@ -37,6 +55,17 @@ impl SshSession {
 #[async_trait]
 impl russh::server::Handler for SshSession {
     type Error = eyre::Error;
+
+    #[allow(unused_variables)]
+    async fn env_request(
+        self,
+        channel: ChannelId,
+        variable_name: &str,
+        variable_value: &str,
+        session: Session,
+    ) -> Result<(Self, Session), Self::Error> {
+        Ok((self, session))
+    }
 
     async fn auth_password(self, user: &str, password: &str) -> Result<(Self, Auth), Self::Error> {
         info!("credentials: {}, {}", user, password);
@@ -75,7 +104,7 @@ impl russh::server::Handler for SshSession {
 
     #[allow(unused_variables, clippy::too_many_arguments)]
     async fn pty_request(
-        self,
+        mut self,
         channel: ChannelId,
         term: &str,
         col_width: u32,
@@ -85,6 +114,9 @@ impl russh::server::Handler for SshSession {
         modes: &[(russh::Pty, u32)],
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
+        // TODO: handle different pty types
+        self.term = term.to_string();
+
         info!(
             "pty_request: {}, {}, {}, {}, {}, {:?}",
             term, col_width, row_height, pix_width, pix_height, modes
@@ -118,6 +150,197 @@ impl russh::server::Handler for SshSession {
             russh_sftp::server::run(channel.handle.into_stream(), sftp).await;
         } else {
             session.channel_failure(channel_id);
+        }
+
+        Ok((self, session))
+    }
+
+    async fn exec_request(
+        mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: Session,
+    ) -> Result<(Self, Session), Self::Error> {
+        log::info!("exec_request");
+
+        let Ok(command) = String::from_utf8(data.to_vec()) else {
+            bail!("command is not valid utf8");
+        };
+
+        self.command = Some(command.clone());
+
+        let (self, session) = self.shell_request(channel, session).await?;
+        Ok((self, session))
+    }
+
+    async fn shell_request(
+        mut self,
+        channel_id: ChannelId,
+        session: Session,
+    ) -> Result<(Self, Session), Self::Error> {
+        log::info!("shell_request");
+
+        let (_attach_id, attach_output) = {
+            let Some(ref mut channel) = self.channels.get_mut(&channel_id) else {
+                bail!("channel not found");
+            };
+
+            let mut attach = self.containers.attach("test", self.command.take()).await?;
+
+            // if let Some(command) = self.command.take() {
+            //     attach.input.0.write_all(command.as_bytes()).await?;
+            // }
+
+            channel.pty = Some(Pty {
+                id: attach.id.clone(),
+                input: Mutex::new(attach.input),
+            });
+
+            (attach.id, attach.output)
+        };
+
+        // Read bytes from the PTY and send them to the SSH client
+        let session_handle = session.handle();
+
+        tokio::spawn(async move {
+            let reader = attach_output.0.into_stream();
+            info!("attach_output reader spawned");
+
+            let res = reader
+                .try_for_each(|output| async {
+                    match output {
+                        LogOutput::StdErr { message } | LogOutput::StdOut { message } => {
+                            // println!("raw: {:?}", message);
+                            println!("stdout: {:?}", String::from_utf8_lossy(&message));
+                            session_handle
+                                .data(channel_id, CryptoVec::from_slice(&message))
+                                .await
+                                .map_err(|e| {
+                                    println!(
+                                        "data failed: {:?}",
+                                        String::from_utf8_lossy(e.as_ref())
+                                    )
+                                })
+                                .unwrap();
+                        }
+                        _ => {}
+                    };
+
+                    Ok(())
+                })
+                .await;
+
+            info!("attach_output reader done: {:?}", res);
+            if let Err(e) = res {
+                log::error!("attach_output reader failed: {}", e);
+            }
+
+            session_handle.eof(channel_id).await.unwrap();
+            session_handle.close(channel_id).await.unwrap();
+
+            // TODO: Clean up
+        });
+
+        // todo: initial shell size
+        {
+            let Some(mut channel) = self.channels.get_mut(&channel_id) else {
+                bail!("channel not found");
+            };
+            let (col_width, row_height) = channel.pty_size.unwrap_or((80, 24));
+
+            if let Some(pty) = channel.pty.as_mut() {
+                self.containers
+                    .resize(&pty.id, col_width, row_height)
+                    .await?;
+            };
+        }
+
+        Ok((self, session))
+    }
+
+    async fn data(
+        self,
+        channel_id: ChannelId,
+        data: &[u8],
+        session: Session,
+    ) -> Result<(Self, Session), Self::Error> {
+        // SSH client sends data, pipe it to the corresponding PTY
+
+        // info!("data: {:?}", String::from_utf8_lossy(data));
+
+        {
+            let Some(channel) = self.channels.get_mut(&channel_id) else {
+                error!("channel not found: {}", channel_id);
+                bail!("channel not found: {}", channel_id);
+            };
+
+            if let Some(pty) = &channel.pty {
+                info!("lock pty.input");
+                let mut input = pty.input.lock().await;
+
+                match input.0.write_all(data).await {
+                    Ok(_) => log::info!("wrote to pty"),
+                    Err(e) => log::error!("failed to write to pty: {}", e),
+                }
+
+                // TODO: maybe we don't need to block here:
+                // match pty.input.try_lock() {
+                //     Ok(mut input) => {
+                //         input.0.write_all(data).await?;
+                //     }
+                //     Err(e) => {
+                //         log::error!("pty.input.lock() failed: {}", e);
+                //     }
+                // }
+            } else {
+                error!("no pty for channel {}", channel_id);
+                // bail!("no pty for channel {}", channel_id);
+            }
+        }
+
+        Ok((self, session))
+    }
+
+    /// The client's pseudo-terminal window size has changed.
+    async fn window_change_request(
+        self,
+        channel_id: ChannelId,
+        col_width: u32,
+        row_height: u32,
+        pix_width: u32,
+        pix_height: u32,
+        session: Session,
+    ) -> Result<(Self, Session), Self::Error> {
+        log::info!("window_change_request channel_id = {channel_id:?} col_width = {col_width} row_height = {row_height}, pix_width = {pix_width}, pix_height = {pix_height}");
+
+        {
+            let Some(mut channel) = self.channels.get_mut(&channel_id) else {
+                bail!("channel not found");
+            };
+
+            channel.pty_size = Some((col_width as u16, row_height as u16));
+            if let Some(pty) = channel.pty.as_mut() {
+                self.containers
+                    .resize(&pty.id, col_width as u16, row_height as u16)
+                    .await?;
+            };
+        }
+
+        Ok((self, session))
+    }
+
+    async fn channel_close(
+        self,
+        channel_id: ChannelId,
+        session: Session,
+    ) -> Result<(Self, Session), Self::Error> {
+        log::info!("channel_close channel_id = {channel_id:?}");
+
+        // Clean up
+        if let Some((_, channel)) = self.channels.remove(&channel_id) {
+            if let Some(pty) = channel.pty {
+                self.containers.detatch(&pty.id).await?;
+            }
         }
 
         Ok((self, session))

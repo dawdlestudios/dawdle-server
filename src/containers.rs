@@ -6,7 +6,7 @@ use bollard::{
 use color_eyre::eyre::{eyre, Result};
 use futures::Stream;
 use log::info;
-use std::{collections::HashMap, pin::Pin};
+use std::pin::Pin;
 use tokio::io::AsyncWrite;
 
 #[derive(Clone)]
@@ -16,9 +16,15 @@ pub struct Containers {
 
 pub struct Attach {
     pub id: String,
-    pub output: Pin<Box<dyn Stream<Item = Result<LogOutput, bollard::errors::Error>> + Send>>,
-    pub input: Pin<Box<dyn AsyncWrite + Send>>,
+    pub output: AttachOutput,
+    pub input: AttachInput,
 }
+
+pub struct AttachInput(pub Pin<Box<dyn AsyncWrite + Send>>);
+
+pub struct AttachOutput(
+    pub Pin<Box<dyn Stream<Item = Result<LogOutput, bollard::errors::Error>> + Send>>,
+);
 
 impl Containers {
     pub fn new() -> Result<Self> {
@@ -71,10 +77,6 @@ impl Containers {
                 bollard::container::Config {
                     image: Some("debian:bookworm"),
                     cmd: Some(vec!["/bin/bash"]),
-                    attach_stdin: Some(true),
-                    attach_stdout: Some(true),
-                    attach_stderr: Some(true),
-                    tty: Some(true),
                     ..Default::default()
                 },
             )
@@ -101,8 +103,7 @@ impl Containers {
                     .map(|n| n.contains(&format!("/dawdle-{}", user)))
                     == Some(true)
             })
-            .map(|c| c.id.clone())
-            .flatten();
+            .and_then(|c| c.id.clone());
 
         info!("container: {:?}", container);
         Ok(container)
@@ -110,7 +111,7 @@ impl Containers {
 
     // attach a new exec process to the user's container
     // create a container if one doesn't exist
-    pub async fn attach(&self, user: &str) -> Result<Attach> {
+    pub async fn attach(&self, user: &str, command: Option<String>) -> Result<Attach> {
         // get or create the container
         let container_id = match self.get_container(user).await? {
             Some(container) => container,
@@ -122,15 +123,23 @@ impl Containers {
             .start_container::<String>(&container_id, Some(StartContainerOptions::default()))
             .await?;
 
+        let command = command.unwrap_or("".to_string());
+        let cmd = match command.is_empty() {
+            true => vec!["/bin/bash"],
+            false => vec!["/bin/bash", "-c", &command],
+        };
+
         let exec = self
             .docker
             .create_exec(
                 &container_id,
                 bollard::exec::CreateExecOptions {
-                    cmd: Some(vec!["/bin/bash"]),
+                    cmd: Some(cmd),
                     attach_stderr: Some(true),
                     attach_stdout: Some(true),
                     attach_stdin: Some(true),
+                    tty: Some(true),
+                    env: Some(vec!["TERM=xterm"]),
                     ..Default::default()
                 },
             )
@@ -152,8 +161,8 @@ impl Containers {
 
         Ok(Attach {
             id: exec.id,
-            output,
-            input,
+            output: AttachOutput(output),
+            input: AttachInput(input),
         })
     }
 }

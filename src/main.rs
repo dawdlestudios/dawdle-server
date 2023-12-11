@@ -21,18 +21,14 @@ impl russh::server::Server for Server {
     type Handler = SshSession;
 
     fn new_client(&mut self, _: Option<SocketAddr>) -> Self::Handler {
-        SshSession::default()
+        SshSession::new(self.containers.clone())
     }
 }
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
-    env_logger::builder()
-        .filter_level(LevelFilter::Debug)
-        .init();
-
-    let docker = bollard::Docker::connect_with_local_defaults()?;
+    env_logger::builder().filter_level(LevelFilter::Info).init();
 
     // generate key in ./keys directory if it doesn't exist
     let key = if !std::path::Path::new("./.keys/id_ed25519").exists() {
@@ -58,8 +54,8 @@ async fn main() -> eyre::Result<()> {
         containers: Containers::new()?,
     };
 
-    let x = server.containers.attach("test").await?;
-    server.containers.detatch(&x.id).await?;
+    // let x = server.containers.attach("test", None).await?;
+    // server.containers.detatch(&x.id).await?;
 
     let port = "2222";
     let host = "0.0.0.0";

@@ -4,18 +4,10 @@ use async_trait::async_trait;
 use log::{error, info};
 use russh_sftp::protocol::{File, FileAttributes, Handle, Name, Status, StatusCode, Version};
 
+#[derive(Default)]
 pub struct SftpSession {
     version: Option<u32>,
     root_dir_read_done: bool,
-}
-
-impl Default for SftpSession {
-    fn default() -> Self {
-        Self {
-            version: None,
-            root_dir_read_done: false,
-        }
-    }
 }
 
 #[async_trait]
