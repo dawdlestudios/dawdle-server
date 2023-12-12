@@ -8,10 +8,10 @@ pub type DatabaseBackend = okv::backend::rocksdb::RocksDb;
 pub type Env = okv::Env<DatabaseBackend>;
 pub type DB<K, V> = okv::Database<K, V, DatabaseBackend>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
-    pub username: String,
     pub password_hash: String,
+    pub ssh_allow_password: bool,
     pub public_keys: Vec<String>,
 }
 

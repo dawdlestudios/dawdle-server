@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
+use argon2::PasswordVerifier;
 use bollard::container::LogOutput;
 use color_eyre::eyre::{self, bail, Result};
 use dashmap::DashMap;
 use futures::TryStreamExt;
 use log::{error, info};
+use russh_keys::key::parse_public_key;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
 use super::sftp::SftpSession;
 use crate::containers::{AttachInput, Containers};
+use crate::state::{State, User};
 use async_trait::async_trait;
 use russh::server::{Auth, Msg, Session};
 use russh::{Channel, ChannelId, CryptoVec};
@@ -28,8 +31,18 @@ pub struct SshChannel {
     pty_size: Option<(u16, u16)>,
 }
 
+#[derive(Debug)]
+struct SshUser {
+    username: String,
+    user: User,
+    keys: Vec<russh_keys::key::PublicKey>,
+}
+
 pub struct SshSession {
     /// The command to run, if any.
+    state: State,
+    user: Option<SshUser>,
+
     command: Option<String>,
     term: String,
     containers: Containers,
@@ -37,8 +50,10 @@ pub struct SshSession {
 }
 
 impl SshSession {
-    pub fn new(containers: Containers) -> Self {
+    pub fn new(containers: Containers, state: State) -> Self {
         Self {
+            state,
+            user: None,
             command: None,
             term: "xterm".to_string(),
             containers,
@@ -49,42 +64,124 @@ impl SshSession {
     pub async fn remove_channel(&mut self, channel_id: ChannelId) -> Option<SshChannel> {
         Some(self.channels.remove(&channel_id)?.1)
     }
+
+    async fn get_user(&mut self, username: &str) -> Result<&SshUser> {
+        let user = match self.user {
+            Some(ref user) => {
+                if user.username == username {
+                    return Ok(&user);
+                } else {
+                    bail!("user mismatch");
+                }
+            }
+            None => {
+                let Some(user) = self.state.users.get(username)? else {
+                    bail!("user not found");
+                };
+
+                user
+            }
+        };
+
+        info!("user: {:?}", user);
+
+        let keys = user
+            .public_keys
+            .iter()
+            .map(|k| {
+                // kinda wastefull to parse it twice
+                // hopefully solved someday: https://github.com/warp-tech/russh/issues/140
+                let key = ssh_key::PublicKey::from_openssh(&k)
+                    .map_err(|e| eyre::eyre!("failed to parse public key: {}", e))?;
+                if !key.algorithm().is_ed25519() {
+                    eyre::bail!("only ed25519 keys are supported")
+                }
+                let x = parse_public_key(&key.to_bytes()?)?;
+                Ok(x)
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        self.user = Some(SshUser {
+            username: username.to_string(),
+            user: user.clone(),
+            keys,
+        });
+
+        match self.user {
+            Some(ref user) => Ok(&user),
+            None => unreachable!(),
+        }
+    }
 }
 
 #[async_trait]
 impl russh::server::Handler for SshSession {
     type Error = eyre::Error;
 
-    #[allow(unused_variables)]
-    async fn env_request(
-        self,
-        channel: ChannelId,
-        variable_name: &str,
-        variable_value: &str,
-        session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
-        Ok((self, session))
-    }
+    async fn auth_password(
+        mut self,
+        user: &str,
+        password: &str,
+    ) -> Result<(Self, Auth), Self::Error> {
+        let user = self.get_user(user).await?;
+        if !user.user.ssh_allow_password {
+            return Ok((
+                self,
+                Auth::Reject {
+                    proceed_with_methods: None,
+                },
+            ));
+        }
 
-    async fn auth_password(self, user: &str, password: &str) -> Result<(Self, Auth), Self::Error> {
-        info!("credentials: {}, {}", user, password);
+        let hash = argon2::PasswordHash::new(&user.user.password_hash)?;
+        argon2::Argon2::default().verify_password(password.as_bytes(), &hash)?;
         Ok((self, Auth::Accept))
     }
 
-    async fn auth_publickey(
-        self,
+    /// just check if the user has the offered public key
+    async fn auth_publickey_offered(
+        mut self,
         user: &str,
         public_key: &russh_keys::key::PublicKey,
     ) -> Result<(Self, Auth), Self::Error> {
-        info!("credentials: {}, {:?}", user, public_key);
+        info!("offered credentials: {}, {:?}", user, public_key);
+        let user = self.get_user(user).await?;
+
+        for key in user.keys.iter() {
+            if key == public_key {
+                info!("key accepted");
+                return Ok((self, Auth::Accept));
+            }
+        }
+
+        Ok((
+            self,
+            Auth::Reject {
+                proceed_with_methods: None,
+            },
+        ))
+    }
+
+    /// actually authenticate the user
+    /// Signature has been verified, now we need to check if the user is allowed to login
+    async fn auth_publickey(
+        mut self,
+        _user: &str,
+        _public_key: &russh_keys::key::PublicKey,
+    ) -> Result<(Self, Auth), Self::Error> {
+        // let user = self.get_user(user).await?;
+
         Ok((self, Auth::Accept))
     }
 
+    /// A new channel has been opened by the client.
     async fn channel_open_session(
         mut self,
         channel: Channel<Msg>,
         session: Session,
     ) -> Result<(Self, bool, Session), Self::Error> {
+        info!("channel_open_session");
+
         {
             let id = channel.id();
             let client = SshChannel {
@@ -99,6 +196,17 @@ impl russh::server::Handler for SshSession {
         }
 
         Ok((self, true, session))
+    }
+
+    #[allow(unused_variables)]
+    async fn env_request(
+        self,
+        channel: ChannelId,
+        variable_name: &str,
+        variable_value: &str,
+        session: Session,
+    ) -> Result<(Self, Session), Self::Error> {
+        Ok((self, session))
     }
 
     #[allow(unused_variables, clippy::too_many_arguments)]

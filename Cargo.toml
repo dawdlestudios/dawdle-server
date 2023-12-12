@@ -29,4 +29,5 @@ ed25519-dalek="2.1.0"
 russh="0.40.0"
 russh-keys="0.40.0"
 russh-sftp="1.2.1"
-axum = "0.7.2"
+axum="0.7.2"
+ssh-key={version="0.6.3", features=["ed25519"]}

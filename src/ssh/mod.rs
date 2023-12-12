@@ -54,6 +54,6 @@ impl russh::server::Server for SshServer {
     type Handler = SshSession;
 
     fn new_client(&mut self, _: Option<SocketAddr>) -> Self::Handler {
-        SshSession::new(self.containers.clone())
+        SshSession::new(self.containers.clone(), self.state.clone())
     }
 }

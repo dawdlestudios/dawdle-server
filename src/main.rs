@@ -3,6 +3,7 @@ mod containers;
 mod ssh;
 mod state;
 
+use argon2::PasswordHasher;
 use color_eyre::eyre;
 use containers::Containers;
 use log::{info, LevelFilter};
@@ -17,6 +18,20 @@ async fn main() -> eyre::Result<()> {
 
     let env = state::create_env()?;
     let state = state::State::new(env)?;
+
+    let _ = state.users.set(
+        "henry",
+        &crate::state::User {
+            public_keys: vec!["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDfx0dXF4OM2HiE550bb7VnN/aKVTK+bZud1EVB4WYRX henry@tempora".to_string()],
+            ssh_allow_password: true,
+            password_hash: argon2::Argon2::default()
+                .hash_password(
+                    "password".as_bytes(),
+                    &argon2::password_hash::SaltString::generate(&mut rand::rngs::OsRng),
+                )?
+                .to_string(),
+        },
+    );
 
     let api_addr: SocketAddr = "127.0.0.1:8008".parse()?;
     let api_server = api::run(state.clone(), api_addr);
