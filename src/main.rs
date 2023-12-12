@@ -1,67 +1,28 @@
-use std::net::{SocketAddr, SocketAddrV4};
-use std::sync::Arc;
-use std::time::Duration;
-
-mod sftp;
-mod ssh;
-
 mod containers;
+mod ssh;
+mod state;
+
 use color_eyre::eyre;
 use containers::Containers;
 use log::{info, LevelFilter};
-use russh_keys::key::KeyPair;
-use ssh::SshSession;
-
-#[derive(Clone)]
-struct Server {
-    containers: Containers,
-}
-
-impl russh::server::Server for Server {
-    type Handler = SshSession;
-
-    fn new_client(&mut self, _: Option<SocketAddr>) -> Self::Handler {
-        SshSession::new(self.containers.clone())
-    }
-}
+use ssh::SshServer;
+use std::net::SocketAddr;
+use tokio::select;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     env_logger::builder().filter_level(LevelFilter::Info).init();
 
-    // generate key in ./keys directory if it doesn't exist
-    let key = if !std::path::Path::new("./.keys/id_ed25519").exists() {
-        let key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
-        std::fs::create_dir_all("./.keys")?;
-        std::fs::write("./.keys/id_ed25519", key.to_bytes())?;
-        key
-    } else {
-        let key = std::fs::read("./.keys/id_ed25519")?;
-        ed25519_dalek::SigningKey::from_bytes(&key.try_into().expect("key is 32 bytes"))
-    };
+    let ssh_server = SshServer::new(Containers::new()?);
 
-    let key = KeyPair::Ed25519(key);
+    let ssh_addr: SocketAddr = "0.0.0.0:2222".parse()?;
+    info!("ssh server listening on {}", ssh_addr);
+    let ssh_server = ssh_server.run(ssh_addr);
 
-    let config = russh::server::Config {
-        auth_rejection_time: Duration::from_secs(1),
-        auth_rejection_time_initial: Some(Duration::from_secs(0)),
-        keys: vec![key],
-        ..Default::default()
-    };
-
-    let server = Server {
-        containers: Containers::new()?,
-    };
-
-    // let x = server.containers.attach("test", None).await?;
-    // server.containers.detatch(&x.id).await?;
-
-    let port = "2222";
-    let host = "0.0.0.0";
-    let addr = SocketAddrV4::new(host.parse()?, port.parse()?);
-    info!("listening on {}", addr);
-    russh::server::run(Arc::new(config), addr, server).await?;
+    select! {
+        _ = ssh_server => {}
+    }
 
     Ok(())
 }

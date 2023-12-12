@@ -1,4 +1,3 @@
-use core::panic;
 use std::sync::Arc;
 
 use bollard::container::LogOutput;
@@ -9,8 +8,8 @@ use log::{error, info};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
+use super::sftp::SftpSession;
 use crate::containers::{AttachInput, Containers};
-use crate::sftp::SftpSession;
 use async_trait::async_trait;
 use russh::server::{Auth, Msg, Session};
 use russh::{Channel, ChannelId, CryptoVec};
