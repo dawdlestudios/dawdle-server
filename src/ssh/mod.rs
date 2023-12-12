@@ -10,6 +10,7 @@ use session::SshSession;
 
 #[derive(Clone)]
 pub struct SshServer {
+    state: crate::state::State,
     containers: Containers,
 }
 
@@ -44,8 +45,8 @@ impl SshServer {
         Ok(key)
     }
 
-    pub fn new(containers: Containers) -> Self {
-        Self { containers }
+    pub fn new(containers: Containers, state: crate::state::State) -> Self {
+        Self { state, containers }
     }
 }
 
