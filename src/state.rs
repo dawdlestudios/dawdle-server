@@ -15,11 +15,12 @@ pub struct User {
     pub public_keys: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Session {
     pub username: String,
     pub created: time::OffsetDateTime,
     pub last_active: time::OffsetDateTime,
+    pub logged_out: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -61,7 +62,7 @@ impl State {
         })
     }
 
-    pub fn add_guestbook_entry(&self, entry: &str) -> Result<()> {
+    pub fn _add_guestbook_entry(&self, entry: &str) -> Result<()> {
         self.guestbook.set(
             &(time::OffsetDateTime::now_utc().unix_timestamp() as u64),
             entry,
@@ -69,7 +70,7 @@ impl State {
         Ok(())
     }
 
-    pub fn guestbook(&self) -> Result<Vec<(u64, String)>> {
+    pub fn _guestbook(&self) -> Result<Vec<(u64, String)>> {
         let mut guestbook = self
             .guestbook_approved
             .iter()?
@@ -82,6 +83,7 @@ impl State {
     pub fn create_session(&self, username: &str) -> Result<String> {
         let session_token = cuid();
         let session = Session {
+            logged_out: false,
             username: username.to_string(),
             created: time::OffsetDateTime::now_utc(),
             last_active: time::OffsetDateTime::now_utc(),
@@ -90,11 +92,30 @@ impl State {
         Ok(session_token)
     }
 
+    pub fn logout_session(&self, session_token: &str) -> Result<()> {
+        let session: Session = self
+            .sessions
+            .get(session_token)?
+            .ok_or_else(|| eyre!("session not found"))?;
+
+        let session = Session {
+            logged_out: true,
+            ..session
+        };
+
+        self.sessions.set(session_token, &session)?;
+        Ok(())
+    }
+
     pub fn verify_session(&self, session_token: &str) -> Result<Option<Session>> {
         let session: Session = self
             .sessions
             .get(session_token)?
             .ok_or_else(|| eyre!("session not found"))?;
+
+        if session.logged_out {
+            return Ok(None);
+        }
 
         const SESSION_TIMEOUT: i64 = 60 * 60 * 24 * 7; // 7 days
         let now = time::OffsetDateTime::now_utc();

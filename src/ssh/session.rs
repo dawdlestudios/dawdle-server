@@ -69,7 +69,7 @@ impl SshSession {
         let user = match self.user {
             Some(ref user) => {
                 if user.username == username {
-                    return Ok(&user);
+                    return Ok(user);
                 } else {
                     bail!("user mismatch");
                 }
@@ -91,7 +91,7 @@ impl SshSession {
             .map(|k| {
                 // kinda wastefull to parse it twice
                 // hopefully solved someday: https://github.com/warp-tech/russh/issues/140
-                let key = ssh_key::PublicKey::from_openssh(&k)
+                let key = ssh_key::PublicKey::from_openssh(k)
                     .map_err(|e| eyre::eyre!("failed to parse public key: {}", e))?;
                 if !key.algorithm().is_ed25519() {
                     eyre::bail!("only ed25519 keys are supported")
@@ -101,13 +101,16 @@ impl SshSession {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        self.user = Some(SshUser {
+        let user = SshUser {
             username: username.to_string(),
             user: user.clone(),
             keys,
-        });
+        };
+
+        self.user = Some(user);
 
         match self.user {
+            #[allow(clippy::needless_borrow)] // false positive
             Some(ref user) => Ok(&user),
             None => unreachable!(),
         }
