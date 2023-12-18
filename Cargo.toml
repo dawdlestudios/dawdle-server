@@ -36,3 +36,4 @@ ssh-key={version="0.6.3", features=["ed25519"]}
 tower="0.4.13"
 axum={version="0.7.2", features=["macros"]}
 axum-extra={version="0.9", features=["cookie"]}
+addr = "0.15.6"

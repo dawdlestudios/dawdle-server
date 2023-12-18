@@ -44,16 +44,25 @@ pub async fn login(
         .create_session(&username)
         .map_err(|_| APIError::InternalServerError)?;
 
-    let cookie = Cookie::build(("session_id", session))
+    let session_cookie = Cookie::build(("session_id", session))
         .max_age(SESSION_COOKIE_MAX_AGE)
         .http_only(true)
+        .path("/api")
+        .secure(!cfg!(debug_assertions))
+        .same_site(SameSite::Strict)
+        .build();
+
+    let username_cookie = Cookie::build(("session_username", username))
+        .max_age(SESSION_COOKIE_MAX_AGE)
+        .http_only(false)
+        .path("/")
         .secure(!cfg!(debug_assertions))
         .same_site(SameSite::Strict)
         .build();
 
     Ok((
         StatusCode::OK,
-        jar.add(cookie),
+        jar.add(session_cookie).add(username_cookie),
         Json(json!({
             "success": true,
         })),
@@ -72,10 +81,35 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> APIResult<
 
     Ok((
         StatusCode::OK,
-        jar.remove("session_id"),
+        jar.remove("session_id").remove("session_username"),
         Json(json!({
             "success": true,
         })),
     )
         .into_response())
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct GuestbookEntry {
+    date: u64,
+    message: String,
+}
+
+pub async fn get_guestbook(State(state): State<AppState>) -> APIResult<impl IntoResponse> {
+    let entries = state
+        .guestbook_approved
+        .iter()
+        .map_err(|_| APIError::InternalServerError)?
+        .map(|val| {
+            val.map(|(k, v)| GuestbookEntry {
+                date: k,
+                message: v,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| APIError::InternalServerError)?;
+
+    println!("{:?}", entries);
+
+    Ok((Json(entries)).into_response())
 }

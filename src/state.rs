@@ -30,12 +30,19 @@ pub struct Project {
     name: String,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct Application {
+    username: String,
+    email: String,
+    about: String,
+}
+
 #[derive(Clone)]
 pub struct State {
     pub sessions: DB<String, SerdeRmp<Session>>,
     pub users: DB<String, SerdeRmp<User>>,
     pub projects: DB<String, SerdeRmp<Project>>,
-
+    pub applications: DB<String, SerdeRmp<(Application, time::OffsetDateTime)>>,
     pub guestbook: DB<u64, String>,
     pub guestbook_approved: DB<u64, String>,
 }
@@ -52,6 +59,7 @@ impl State {
         let projects = env.open("projects")?;
         let guestbook = env.open("guestbook")?;
         let guestbook_approved = env.open("guestbook_approved")?;
+        let applications = env.open("applications")?;
 
         Ok(Self {
             users,
@@ -59,6 +67,7 @@ impl State {
             projects,
             guestbook,
             guestbook_approved,
+            applications,
         })
     }
 
