@@ -16,6 +16,9 @@ pub struct LoginRequest {
 }
 
 const SESSION_COOKIE_MAX_AGE: Duration = Duration::days(7);
+const USERNAME_COOKIE_MAX_AGE: Duration = Duration::days(7);
+const USERNAME_COOKIE_NAME: &str = "clientside_username";
+const SESSION_COOKIE_NAME: &str = "session_token";
 
 #[axum::debug_handler]
 pub async fn login(
@@ -44,7 +47,7 @@ pub async fn login(
         .create_session(&username)
         .map_err(|_| APIError::InternalServerError)?;
 
-    let session_cookie = Cookie::build(("session_id", session))
+    let session_cookie = Cookie::build((SESSION_COOKIE_NAME, session))
         .max_age(SESSION_COOKIE_MAX_AGE)
         .http_only(true)
         .path("/api")
@@ -52,8 +55,8 @@ pub async fn login(
         .same_site(SameSite::Strict)
         .build();
 
-    let username_cookie = Cookie::build(("session_username", username))
-        .max_age(SESSION_COOKIE_MAX_AGE)
+    let username_cookie = Cookie::build((USERNAME_COOKIE_NAME, username))
+        .max_age(USERNAME_COOKIE_MAX_AGE)
         .http_only(false)
         .path("/")
         .secure(!cfg!(debug_assertions))
@@ -71,7 +74,7 @@ pub async fn login(
 }
 
 pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> APIResult<impl IntoResponse> {
-    let session_token = jar.get("session_id").map(|c| c.value().to_string());
+    let session_token = jar.get(SESSION_COOKIE_NAME).map(|c| c.value().to_string());
 
     if let Some(session_token) = session_token {
         state
@@ -79,9 +82,13 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> APIResult<
             .map_err(|_| APIError::InternalServerError)?;
     }
 
+    let remove_cookies = jar
+        .remove(Cookie::from(SESSION_COOKIE_NAME))
+        .remove(Cookie::build((USERNAME_COOKIE_NAME, "")).path("/").build());
+
     Ok((
         StatusCode::OK,
-        jar.remove("session_id").remove("session_username"),
+        remove_cookies,
         Json(json!({
             "success": true,
         })),
