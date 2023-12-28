@@ -53,6 +53,10 @@ impl SshServer {
 impl russh::server::Server for SshServer {
     type Handler = SshSession;
 
+    fn handle_session_error(&mut self, error: <Self::Handler as russh::server::Handler>::Error) {
+        log::error!("session error: {}", error);
+    }
+
     fn new_client(&mut self, _: Option<SocketAddr>) -> Self::Handler {
         SshSession::new(self.containers.clone(), self.state.clone())
     }

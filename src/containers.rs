@@ -9,6 +9,8 @@ use log::info;
 use std::pin::Pin;
 use tokio::io::AsyncWrite;
 
+use crate::utils::is_valid_username;
+
 #[derive(Clone)]
 pub struct Containers {
     docker: Docker,
@@ -28,9 +30,24 @@ pub struct AttachOutput(
 
 impl Containers {
     pub fn new() -> Result<Self> {
-        Ok(Self {
-            docker: Docker::connect_with_local_defaults()?,
-        })
+        #[cfg(target_os = "macos")]
+        let docker = Docker::connect_with_socket(
+            crate::config::DOCKER_SOCKET_MACOS,
+            30,
+            bollard::API_DEFAULT_VERSION,
+        )?;
+
+        #[cfg(not(target_os = "macos"))]
+        let docker = Docker::connect_with_local_defaults()?;
+
+        Ok(Self { docker })
+    }
+
+    pub async fn init(&self) -> Result<()> {
+        let _ = self.docker.info().await?;
+        std::fs::create_dir_all("./.files/home")?;
+        std::fs::create_dir_all("./.files/bin")?;
+        Ok(())
     }
 
     pub async fn resize(&self, id: &str, width: u16, height: u16) -> Result<()> {
@@ -67,26 +84,66 @@ impl Containers {
     }
 
     pub async fn create_container(&self, user: &str) -> Result<String> {
+        assert!(is_valid_username(user));
+
+        println!("creating container for {}", user);
+        println!("name: {}{}", crate::config::DOCKER_CONTAINER_PREFIX, user);
+
+        let binds = vec![
+            format!(
+                "{}/.files/home/{}:/home/{}:rw",
+                std::env::current_dir()?.display(),
+                user,
+                user
+            ),
+            format!(
+                "{}/.files/bin:/usr/local/dawdle/bin:ro",
+                std::env::current_dir()?.display()
+            ),
+        ];
+
+        std::fs::create_dir_all(format!(
+            "{}/.files/home/{}",
+            std::env::current_dir()?.display(),
+            user
+        ))?;
+
         let container = self
             .docker
             .create_container(
                 Some(CreateContainerOptions {
-                    name: format!("dawdle-{}", user),
+                    name: format!("{}{}", crate::config::DOCKER_CONTAINER_PREFIX, user),
                     ..Default::default()
                 }),
                 bollard::container::Config {
-                    image: Some("debian:bookworm"),
-                    cmd: Some(vec!["/bin/bash"]),
+                    host_config: Some(bollard::models::HostConfig {
+                        binds: Some(binds),
+                        ..Default::default()
+                    }),
+                    hostname: Some("dawdle.space"),
+                    image: Some(
+                        format!(
+                            "{}:{}",
+                            crate::config::DOCKER_IMAGE,
+                            crate::config::DOCKER_TAG
+                        )
+                        .as_str(),
+                    ),
+                    env: Some(vec![&format!("DAWDLE_USER={}", user)]),
                     ..Default::default()
                 },
             )
             .await?;
+
+        println!("created container: {:?}", container.id);
 
         Ok(container.id)
     }
 
     // get a container id for a user
     pub async fn get_container(&self, user: &str) -> Result<Option<String>> {
+        assert!(is_valid_username(user));
+
         let containers = self
             .docker
             .list_containers::<String>(Some(bollard::container::ListContainersOptions {
@@ -98,10 +155,15 @@ impl Containers {
         let container = containers
             .iter()
             .find(|c| {
-                c.names
-                    .as_ref()
-                    .map(|n| n.contains(&format!("/dawdle-{}", user)))
-                    == Some(true)
+                c.names.as_ref().map(|n| {
+                    log::info!("names: {:?}", n);
+                    log::info!("user: {}", user);
+                    n.contains(&format!(
+                        "/{}{}",
+                        crate::config::DOCKER_CONTAINER_PREFIX,
+                        user
+                    ))
+                }) == Some(true)
             })
             .and_then(|c| c.id.clone());
 
@@ -112,6 +174,8 @@ impl Containers {
     // attach a new exec process to the user's container
     // create a container if one doesn't exist
     pub async fn attach(&self, user: &str, command: Option<String>) -> Result<Attach> {
+        assert!(is_valid_username(user));
+
         // get or create the container
         let container_id = match self.get_container(user).await? {
             Some(container) => container,
@@ -125,7 +189,7 @@ impl Containers {
 
         let command = command.unwrap_or("".to_string());
         let cmd = match command.is_empty() {
-            true => vec!["/bin/bash"],
+            true => vec!["/bin/bash", "-l", "-i", "-c", "clear; cd ~; exec zsh"],
             false => vec!["/bin/bash", "-c", &command],
         };
 
@@ -139,7 +203,7 @@ impl Containers {
                     attach_stdout: Some(true),
                     attach_stdin: Some(true),
                     tty: Some(true),
-                    env: Some(vec!["TERM=xterm"]),
+                    env: Some(vec!["TERM=xterm-256color"]),
                     ..Default::default()
                 },
             )

@@ -5,7 +5,7 @@ use bollard::container::LogOutput;
 use color_eyre::eyre::{self, bail, Result};
 use dashmap::DashMap;
 use futures::TryStreamExt;
-use log::{error, info};
+use log::{debug, error, info};
 use russh_keys::key::parse_public_key;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
@@ -147,7 +147,7 @@ impl russh::server::Handler for SshSession {
         user: &str,
         public_key: &russh_keys::key::PublicKey,
     ) -> Result<(Self, Auth), Self::Error> {
-        info!("offered credentials: {}, {:?}", user, public_key);
+        debug!("offered credentials: {}, {:?}", user, public_key);
         let user = self.get_user(user).await?;
 
         for key in user.keys.iter() {
@@ -227,7 +227,7 @@ impl russh::server::Handler for SshSession {
         // TODO: handle different pty types
         self.term = term.to_string();
 
-        info!(
+        debug!(
             "pty_request: {}, {}, {}, {}, {}, {:?}",
             term, col_width, row_height, pix_width, pix_height, modes
         );
@@ -294,12 +294,24 @@ impl russh::server::Handler for SshSession {
     ) -> Result<(Self, Session), Self::Error> {
         log::info!("shell_request");
 
+        let Some(user) = self.user.as_ref() else {
+            bail!("user not found");
+        };
+
         let (_attach_id, attach_output) = {
             let Some(ref mut channel) = self.channels.get_mut(&channel_id) else {
+                log::error!("channel not found");
                 bail!("channel not found");
             };
 
-            let attach = self.containers.attach("test", self.command.clone()).await?;
+            let attach = self
+                .containers
+                .attach(&user.username, self.command.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("attach failed: {}", e);
+                    e
+                })?;
 
             channel.pty = Some(Pty {
                 id: attach.id.clone(),
@@ -320,8 +332,6 @@ impl russh::server::Handler for SshSession {
                 .try_for_each(|output| async {
                     match output {
                         LogOutput::StdErr { message } | LogOutput::StdOut { message } => {
-                            // println!("raw: {:?}", message);
-                            println!("stdout: {:?}", String::from_utf8_lossy(&message));
                             session_handle
                                 .data(channel_id, CryptoVec::from_slice(&message))
                                 .await

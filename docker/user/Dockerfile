@@ -1,6 +1,5 @@
-FROM debian:bookworm
-ARG EXTRA_DEPS="sudo micro git hugo procps build-essential zsh lsd"
-ENV DAWDLE_USER="changeme"
+FROM debian:12-slim
+ARG EXTRA_DEPS="sudo micro git procps build-essential zsh lsd curl wget vim nano tar gzip unzip bzip2 xz-utils"
 
 # Ensure the package database is up to date
 RUN apt-get update -y && \

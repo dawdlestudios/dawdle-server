@@ -3,6 +3,10 @@ name="dawdle-server"
 version="0.1.0"
 edition="2021"
 
+[[bin]]
+name="dawdle-server"
+path="src/main.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -36,4 +40,4 @@ ssh-key={version="0.6.3", features=["ed25519"]}
 tower="0.4.13"
 axum={version="0.7.2", features=["macros"]}
 axum-extra={version="0.9", features=["cookie"]}
-addr = "0.15.6"
+addr="0.15.6"

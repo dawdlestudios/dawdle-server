@@ -1,6 +1,8 @@
+mod config;
 mod containers;
 mod ssh;
 mod state;
+mod utils;
 mod web;
 
 use argon2::PasswordHasher;
@@ -19,29 +21,32 @@ async fn main() -> eyre::Result<()> {
     let env = state::create_env()?;
     let state = state::State::new(env)?;
 
+    let containers = Containers::new()?;
+    containers.init().await?;
+
     if cfg!(debug_assertions) {
         log::warn!("running in debug mode! this is not secure!");
 
         let _ = state.users.set(
-        "henry",
-        &crate::state::User {
-            public_keys: vec!["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDfx0dXF4OM2HiE550bb7VnN/aKVTK+bZud1EVB4WYRX henry@tempora".to_string()],
-            ssh_allow_password: true,
-            password_hash: argon2::Argon2::default()
-                .hash_password(
-                    "password".as_bytes(),
-                    &argon2::password_hash::SaltString::generate(&mut rand::rngs::OsRng),
-                )?
-                .to_string(),
-        },
-    );
+            "henry",
+            &crate::state::User {
+                public_keys: vec!["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKpHLbfvXYR+OUXeh4GSpX26FJUUbT4UV2lOunYNH3a henry@macaroni".to_string()],
+                ssh_allow_password: true,
+                password_hash: argon2::Argon2::default()
+                    .hash_password(
+                        "password".as_bytes(),
+                        &argon2::password_hash::SaltString::generate(&mut rand::rngs::OsRng),
+                    )?
+                    .to_string(),
+            },
+        );
     }
 
     let api_addr: SocketAddr = "127.0.0.1:8008".parse()?;
     let api_server = web::run(state.clone(), api_addr);
 
     let ssh_addr: SocketAddr = "0.0.0.0:2222".parse()?;
-    let ssh_server = SshServer::new(Containers::new()?, state);
+    let ssh_server = SshServer::new(containers, state);
     let ssh_server = ssh_server.run(ssh_addr);
 
     info!("api server listening on {}", api_addr);

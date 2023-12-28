@@ -70,7 +70,7 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
 
         let is_api = {
             if cfg!(debug_assertions) {
-                domain.prefix() == None && domain.suffix() == "localhost"
+                domain.prefix().is_none() && domain.suffix() == "localhost"
             } else {
                 // this should get redirected by our reverse proxy
                 if port != "80" {
