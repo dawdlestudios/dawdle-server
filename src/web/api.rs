@@ -105,21 +105,29 @@ struct GuestbookEntry {
     message: String,
 }
 
-pub async fn get_guestbook(State(state): State<AppState>) -> APIResult<impl IntoResponse> {
-    let entries = state
-        .guestbook_approved
-        .iter()
-        .map_err(|_| APIError::InternalServerError)?
-        .map(|val| {
-            val.map(|(k, v)| GuestbookEntry {
-                date: k,
-                message: v,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()
+pub async fn add_guestbook_entry(
+    State(state): State<AppState>,
+    body: Json<String>,
+) -> APIResult<impl IntoResponse> {
+    let entry = body.0;
+
+    state
+        .add_guestbook_entry(&entry)
         .map_err(|_| APIError::InternalServerError)?;
 
-    println!("{:?}", entries);
+    Ok((Json(json!({ "success": true }))).into_response())
+}
+
+pub async fn get_guestbook(State(state): State<AppState>) -> APIResult<impl IntoResponse> {
+    let entries = state
+        .guestbook()
+        .map_err(|_| APIError::InternalServerError)?
+        .iter()
+        .map(|(date, msg)| GuestbookEntry {
+            date: *date,
+            message: msg.clone(),
+        })
+        .collect::<Vec<_>>();
 
     Ok((Json(entries)).into_response())
 }
@@ -145,4 +153,89 @@ pub async fn get_me(
         public_keys: user.public_keys,
     }))
     .into_response())
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct AddPublicKeyRequest {
+    name: String,
+    key: String,
+}
+
+pub async fn add_public_key(
+    session: ValidSession,
+    State(state): State<AppState>,
+    body: Json<AddPublicKeyRequest>,
+) -> APIResult<impl IntoResponse> {
+    let AddPublicKeyRequest { name, key } = body.0;
+
+    let tx = state
+        .users
+        .transaction()
+        .map_err(|_| APIError::InternalServerError)?;
+
+    let mut user = state
+        .users
+        .get(session.username())
+        .map_err(|_| APIError::InternalServerError)?
+        .ok_or(APIError::InternalServerError)?;
+
+    if user.public_keys.iter().any(|(n, _)| n == &name) {
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": "key name already exists",
+            })),
+        )
+            .into_response());
+    }
+
+    user.public_keys.push((name, key));
+    tx.set(session.username(), &user)
+        .map_err(|_| APIError::InternalServerError)?;
+    tx.commit().map_err(|_| APIError::InternalServerError)?;
+
+    Ok((Json(json!({ "success": true }))).into_response())
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct RemovePublicKeyRequest {
+    name: String,
+}
+
+pub async fn remove_public_key(
+    session: ValidSession,
+    State(state): State<AppState>,
+    body: Json<RemovePublicKeyRequest>,
+) -> APIResult<impl IntoResponse> {
+    let RemovePublicKeyRequest { name } = body.0;
+
+    let tx = state
+        .users
+        .transaction()
+        .map_err(|_| APIError::InternalServerError)?;
+
+    let mut user = state
+        .users
+        .get(session.username())
+        .map_err(|_| APIError::InternalServerError)?
+        .ok_or(APIError::InternalServerError)?;
+
+    if !user.public_keys.iter().any(|(n, _)| n == &name) {
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": "key name does not exist",
+            })),
+        )
+            .into_response());
+    }
+
+    user.public_keys.retain(|(n, _)| n != &name);
+    tx.set(session.username(), &user)
+        .map_err(|_| APIError::InternalServerError)?;
+    tx.commit().map_err(|_| APIError::InternalServerError)?;
+
+    Ok((Json(json!({ "success": true }))).into_response())
 }

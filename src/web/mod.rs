@@ -8,7 +8,7 @@ use color_eyre::eyre::Result;
 use std::net::SocketAddr;
 use tower::ServiceExt;
 
-use self::errors::APIResult;
+use self::errors::{error_404, APIResult};
 
 mod api;
 mod errors;
@@ -23,23 +23,19 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
                 .route("/login", post(api::login))
                 .route("/logout", post(api::logout))
                 .route("/guestbook", get(api::get_guestbook))
+                .route("/guestbook", post(api::add_guestbook_entry))
                 .route("/test", get((StatusCode::OK, "test")))
-                .route("/me", get(api::get_me)), // .route("/public_key", post(api::add_public_key))
-                                                 // .route("/public_key", delete(api::remove_public_key)),
-                                                 // .route("/project", post(api::create_project))
-                                                 // .route("/project", delete(api::delete_project))
+                .route("/me", get(api::get_me))
+                .route("/public_key", post(api::add_public_key))
+                .route("/public_key", delete(api::remove_public_key)),
+            // .route("/project", post(api::create_project))
+            //                                              .route("/project", delete(api::delete_project))
         )
-        .fallback(|| async { APIResult::<Body>::Err(APIError::NotFound) })
-        .with_state(state.clone());
-
-    let sites_router = Router::new()
         .fallback(|| async { APIResult::<Body>::Err(APIError::NotFound) })
         .with_state(state.clone());
 
     // Use a different router based on the hostname.
     let app = |request: Request| async move {
-        _ = state.projects.get("test");
-
         // We don't use the Host extractor as it returns X-Forwarded-Host if present,
         // which can be spoofed by the client.
         let hostname_header = request
@@ -59,25 +55,55 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
         let domain = addr::parse_domain_name(hostname)
             .map_err(|_| APIError::BadRequest("invalid hostname".to_string()))?;
 
+        let is_on_dawdle_space = if cfg!(debug_assertions) {
+            domain.root() == Some("dawdle.localhost") && domain.suffix() == "localhost"
+        } else {
+            // this should get redirected by our reverse proxy
+            if port != "80" {
+                return APIResult::Err(APIError::BadRequest("insecure connection".to_string()));
+            }
+            domain.root() == Some("dawdle.space") && domain.suffix() == "space"
+        };
+
         let is_api = {
             if cfg!(debug_assertions) {
-                domain.prefix().is_none() && domain.suffix() == "localhost"
+                is_on_dawdle_space && domain.prefix().is_none()
             } else {
                 // this should get redirected by our reverse proxy
                 if port != "80" {
                     return APIResult::Err(APIError::BadRequest("insecure connection".to_string()));
                 }
-
                 domain.root() == Some("dawdle.space")
+                    && domain.prefix().is_none()
+                    && domain.suffix() == "space"
             }
         };
 
         if is_api {
             APIResult::Ok(api_router.oneshot(request).await.into_response())
         } else {
-            // TODO: insert the project name into the request extensions.
-            // request.extensions_mut().insert("asdf");
-            APIResult::Ok(sites_router.oneshot(request).await.into_response())
+            let website = match is_on_dawdle_space {
+                true => {
+                    let domains = state
+                        .subdomains
+                        .read()
+                        .map_err(|_| APIError::InternalServerError)?;
+                    domains.get(domain.prefix().unwrap()).cloned()
+                }
+                false => {
+                    let domains = state
+                        .custom_domains
+                        .read()
+                        .map_err(|_| APIError::InternalServerError)?;
+                    domains.get(hostname).cloned()
+                }
+            };
+
+            let Some(website) = website else {
+                return APIResult::Ok(error_404());
+            };
+
+            APIResult::Ok(format!("website: {:?}", website).into_response())
         }
     };
 

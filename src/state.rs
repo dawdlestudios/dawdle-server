@@ -1,10 +1,15 @@
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
+
 use argon2::PasswordVerifier;
 use color_eyre::eyre::{eyre, Result};
 use cuid2::cuid;
 use okv::types::serde::SerdeRmp;
 use serde::{Deserialize, Serialize};
 
-pub type DatabaseBackend = okv::backend::rocksdb::RocksDb;
+pub type DatabaseBackend = okv::backend::rocksdb::RocksDbOptimistic;
 pub type Env = okv::Env<DatabaseBackend>;
 pub type DB<K, V> = okv::Database<K, V, DatabaseBackend>;
 
@@ -44,10 +49,19 @@ pub struct Application {
 pub struct State {
     pub sessions: DB<String, SerdeRmp<Session>>,
     pub users: DB<String, SerdeRmp<User>>,
-    pub projects: DB<String, SerdeRmp<Project>>,
+    // pub projects: DB<String, SerdeRmp<Project>>,
     pub applications: DB<String, SerdeRmp<(Application, time::OffsetDateTime)>>,
     pub guestbook: DB<u64, String>,
     pub guestbook_approved: DB<u64, String>,
+
+    pub subdomains: Arc<RwLock<HashMap<String, Website>>>,
+    pub custom_domains: Arc<RwLock<HashMap<String, Website>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Website {
+    User(String),
+    Project(String, String),
 }
 
 pub fn create_env() -> Result<Env> {
@@ -59,22 +73,43 @@ impl State {
     pub fn new(env: Env) -> Result<Self> {
         let users = env.open("users")?;
         let sessions = env.open("sessions")?;
-        let projects = env.open("projects")?;
+        // let projects = env.open("projects")?;
         let guestbook = env.open("guestbook")?;
         let guestbook_approved = env.open("guestbook_approved")?;
         let applications = env.open("applications")?;
 
+        let subdomains = Arc::new(RwLock::new(HashMap::new()));
+        let custom_domains = Arc::new(RwLock::new(HashMap::new()));
+
+        {
+            subdomains
+                .write()
+                .expect("failed to lock subdomains")
+                .extend(
+                    users
+                        .iter()?
+                        .map(|user| {
+                            user.map(|(username, _): (String, _)| {
+                                (username.clone(), Website::User(username))
+                            })
+                        })
+                        .collect::<Result<HashMap<_, _>, _>>()?,
+                );
+        }
+
         Ok(Self {
             users,
             sessions,
-            projects,
+            // projects,
             guestbook,
             guestbook_approved,
             applications,
+            subdomains,
+            custom_domains,
         })
     }
 
-    pub fn _add_guestbook_entry(&self, entry: &str) -> Result<()> {
+    pub fn add_guestbook_entry(&self, entry: &str) -> Result<()> {
         self.guestbook.set(
             &(time::OffsetDateTime::now_utc().unix_timestamp() as u64),
             entry,
@@ -82,7 +117,7 @@ impl State {
         Ok(())
     }
 
-    pub fn _guestbook(&self) -> Result<Vec<(u64, String)>> {
+    pub fn guestbook(&self) -> Result<Vec<(u64, String)>> {
         let mut guestbook = self
             .guestbook_approved
             .iter()?
