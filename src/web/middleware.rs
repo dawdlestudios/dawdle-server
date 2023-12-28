@@ -1,38 +1,41 @@
 use crate::state::{Session, State as AppState};
+use async_trait::async_trait;
 use axum::{
-    extract::{Request, State},
-    http::StatusCode,
-    middleware::Next,
-    response::IntoResponse,
+    extract::FromRequestParts,
+    http::request::Parts,
+    response::{IntoResponse, Response},
 };
 use axum_extra::extract::CookieJar;
 
-use super::errors::{APIError, APIResult};
+use super::errors::APIError;
 
-pub async fn extract_session(
-    State(state): State<AppState>,
-    jar: CookieJar,
-    mut request: Request,
-    next: Next,
-) -> APIResult<impl IntoResponse> {
-    if let Some(session_token) = jar.get("session_id").map(|c| c.value().to_string()) {
-        if let Ok(Some(session)) = state.verify_session(&session_token) {
-            request.extensions_mut().insert(session);
-        };
-    };
-
-    // Ok(request)
-    Ok(next.run(request).await)
+pub struct ValidSession(pub Session);
+impl ValidSession {
+    pub fn username(&self) -> &str {
+        &self.0.username
+    }
 }
 
-pub async fn require_session(request: Request, next: Next) -> APIResult<impl IntoResponse> {
-    if request.extensions().get::<Session>().is_none() {
-        return Err(APIError::Custom(
-            StatusCode::UNAUTHORIZED,
-            "not logged in".to_string(),
-        ));
-    };
+#[async_trait]
+impl FromRequestParts<AppState> for ValidSession {
+    type Rejection = Response;
 
-    // Ok(request)
-    Ok(next.run(request).await)
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        use axum::RequestPartsExt;
+        let jar = parts
+            .extract::<CookieJar>()
+            .await
+            .map_err(|err| err.into_response())?;
+
+        if let Some(session_token) = jar.get("session_id").map(|c| c.value().to_string()) {
+            if let Ok(Some(session)) = state.verify_session(&session_token) {
+                return Ok(Self(session));
+            };
+        };
+
+        Err(APIError::Unauthorized.into_response())
+    }
 }

@@ -8,10 +8,7 @@ use color_eyre::eyre::Result;
 use std::net::SocketAddr;
 use tower::ServiceExt;
 
-use self::{
-    errors::APIResult,
-    middleware::{extract_session, require_session},
-};
+use self::errors::APIResult;
 
 mod api;
 mod errors;
@@ -25,18 +22,12 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
             Router::new()
                 .route("/login", post(api::login))
                 .route("/logout", post(api::logout))
-                .route("/guestbook", get(api::get_guestbook)),
-        )
-        // require authentication
-        .nest(
-            "/api",
-            Router::new()
+                .route("/guestbook", get(api::get_guestbook))
                 .route("/test", get((StatusCode::OK, "test")))
-                .route_layer(axum::middleware::from_fn(require_session))
-                .route_layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    extract_session,
-                )),
+                .route("/me", get(api::get_me)), // .route("/public_key", post(api::add_public_key))
+                                                 // .route("/public_key", delete(api::remove_public_key)),
+                                                 // .route("/project", post(api::create_project))
+                                                 // .route("/project", delete(api::delete_project))
         )
         .fallback(|| async { APIResult::<Body>::Err(APIError::NotFound) })
         .with_state(state.clone());

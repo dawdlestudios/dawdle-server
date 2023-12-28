@@ -30,18 +30,18 @@ async fn main() -> eyre::Result<()> {
         let _ = state.users.set(
             "henry",
             &crate::state::User {
-                public_keys: vec!["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKpHLbfvXYR+OUXeh4GSpX26FJUUbT4UV2lOunYNH3a henry@macaroni".to_string()],
+                public_keys: vec![("main".to_string(), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKpHLbfvXYR+OUXeh4GSpX26FJUUbT4UV2lOunYNH3a henry@macaroni".to_string())],
                 ssh_allow_password: true,
                 password_hash: argon2::Argon2::default()
                     .hash_password(
                         "password".as_bytes(),
                         &argon2::password_hash::SaltString::generate(&mut rand::rngs::OsRng),
-                    )?
+                    )? 
                     .to_string(),
             },
         );
     }
-
+ 
     let api_addr: SocketAddr = "127.0.0.1:8008".parse()?;
     let api_server = web::run(state.clone(), api_addr);
 

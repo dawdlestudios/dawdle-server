@@ -7,7 +7,10 @@ use axum_extra::extract::{
 use serde_json::json;
 use time::Duration;
 
-use super::errors::{APIError, APIResult};
+use super::{
+    errors::{APIError, APIResult},
+    middleware::ValidSession,
+};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct LoginRequest {
@@ -119,4 +122,27 @@ pub async fn get_guestbook(State(state): State<AppState>) -> APIResult<impl Into
     println!("{:?}", entries);
 
     Ok((Json(entries)).into_response())
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct MeResponse {
+    username: String,
+    public_keys: Vec<(String, String)>,
+}
+
+pub async fn get_me(
+    session: ValidSession,
+    State(state): State<AppState>,
+) -> APIResult<impl IntoResponse> {
+    let user = state
+        .users
+        .get(session.username())
+        .map_err(|_| APIError::InternalServerError)?
+        .ok_or(APIError::InternalServerError)?;
+
+    Ok((Json(MeResponse {
+        username: session.username().to_string(),
+        public_keys: user.public_keys,
+    }))
+    .into_response())
 }
