@@ -31,9 +31,10 @@ pub async fn login(
 ) -> APIResult<impl IntoResponse> {
     let LoginRequest { username, password } = body.0;
 
-    let valid = state
-        .verify_password(&username, &password)
-        .map_err(|_| APIError::InternalServerError)?;
+    let valid = state.verify_password(&username, &password).map_err(|e| {
+        log::error!("error verifying password: {:?}", e);
+        APIError::Unauthorized
+    })?;
 
     if !valid {
         return Ok((

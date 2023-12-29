@@ -16,6 +16,7 @@ pub fn error_404() -> Response {
 pub enum APIError {
     NotFound,
     InternalServerError,
+
     Unauthorized,
     BadRequest(String),
     _Custom(StatusCode, String),

@@ -56,7 +56,8 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
             .map_err(|_| APIError::BadRequest("invalid hostname".to_string()))?;
 
         let is_on_dawdle_space = if cfg!(debug_assertions) {
-            domain.root() == Some("dawdle.localhost") && domain.suffix() == "localhost"
+            (domain.root() == Some("dawdle.localhost") && domain.suffix() == "localhost")
+                || (domain.root() == None && domain.suffix() == "localhost")
         } else {
             // this should get redirected by our reverse proxy
             if port != "80" {
