@@ -9,7 +9,7 @@ use time::Duration;
 
 use super::{
     errors::{APIError, APIResult},
-    middleware::ValidSession,
+    middleware::RequiredSession,
 };
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -140,7 +140,7 @@ struct MeResponse {
 }
 
 pub async fn get_me(
-    session: ValidSession,
+    session: RequiredSession,
     State(state): State<AppState>,
 ) -> APIResult<impl IntoResponse> {
     let user = state
@@ -163,7 +163,7 @@ pub struct AddPublicKeyRequest {
 }
 
 pub async fn add_public_key(
-    session: ValidSession,
+    session: RequiredSession,
     State(state): State<AppState>,
     body: Json<AddPublicKeyRequest>,
 ) -> APIResult<impl IntoResponse> {
@@ -205,7 +205,7 @@ pub struct RemovePublicKeyRequest {
 }
 
 pub async fn remove_public_key(
-    session: ValidSession,
+    session: RequiredSession,
     State(state): State<AppState>,
     body: Json<RemovePublicKeyRequest>,
 ) -> APIResult<impl IntoResponse> {

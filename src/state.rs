@@ -23,7 +23,7 @@ pub struct User {
     pub public_keys: Vec<(PublicKeyName, PublicKeyData)>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Session {
     pub username: String,
     pub created: time::OffsetDateTime,

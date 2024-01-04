@@ -13,6 +13,7 @@ use self::errors::{error_404, APIResult};
 mod api;
 mod errors;
 mod middleware;
+mod webdav;
 
 pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
     let api_router = Router::new()
@@ -31,6 +32,9 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
             // .route("/project", post(api::create_project))
             //                                              .route("/project", delete(api::delete_project))
         )
+        .route("/webdav", any(webdav::handler))
+        .route("/webdav/", any(webdav::handler))
+        .route("/webdav/*rest", any(webdav::handler))
         .fallback(|| async { APIResult::<Body>::Err(APIError::NotFound) })
         .with_state(state.clone());
 
@@ -57,7 +61,7 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
 
         let is_on_dawdle_space = if cfg!(debug_assertions) {
             (domain.root() == Some("dawdle.localhost") && domain.suffix() == "localhost")
-                || (domain.root() == None && domain.suffix() == "localhost")
+                || (domain.root().is_none() && domain.suffix() == "localhost")
         } else {
             // this should get redirected by our reverse proxy
             if port != "80" {
