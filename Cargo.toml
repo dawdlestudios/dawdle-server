@@ -27,7 +27,7 @@ dashmap="5.5.3"
 rand="0.8.5"
 time={version="0.3.30", features=["serde"]}
 argon2={version="0.5.2", features=["std"]}
-okv={version="0.3", features=["rocksdb", "rmp-serde"]}
+okv={version="0.3", features=["rocksdb", "serde_json"]}
 
 # ssh server dependencies
 bollard="0.15.0"

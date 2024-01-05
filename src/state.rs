@@ -6,7 +6,7 @@ use std::{
 use argon2::PasswordVerifier;
 use color_eyre::eyre::{eyre, Result};
 use cuid2::cuid;
-use okv::types::serde::SerdeRmp;
+use okv::types::serde::SerdeJson;
 use serde::{Deserialize, Serialize};
 
 pub type DatabaseBackend = okv::backend::rocksdb::RocksDbOptimistic;
@@ -21,6 +21,7 @@ pub struct User {
     pub password_hash: String,
     pub ssh_allow_password: bool,
     pub public_keys: Vec<(PublicKeyName, PublicKeyData)>,
+    pub role: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -47,10 +48,10 @@ pub struct Application {
 
 #[derive(Clone)]
 pub struct State {
-    pub sessions: DB<String, SerdeRmp<Session>>,
-    pub users: DB<String, SerdeRmp<User>>,
-    // pub projects: DB<String, SerdeRmp<Project>>,
-    pub applications: DB<String, SerdeRmp<(Application, time::OffsetDateTime)>>,
+    pub sessions: DB<String, SerdeJson<Session>>,
+    pub users: DB<String, SerdeJson<User>>,
+    // pub projects: DB<String, SerdeJson<Project>>,
+    pub applications: DB<String, SerdeJson<(Application, time::OffsetDateTime)>>,
     pub guestbook: DB<u64, String>,
     pub guestbook_approved: DB<u64, String>,
 

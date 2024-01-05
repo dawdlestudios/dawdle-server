@@ -19,7 +19,7 @@ pub enum APIError {
 
     Unauthorized,
     BadRequest(String),
-    _Custom(StatusCode, String),
+    Custom(StatusCode, String),
 }
 
 impl IntoResponse for APIError {
@@ -43,7 +43,7 @@ impl IntoResponse for APIError {
             APIError::InternalServerError => {
                 (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({}))).into_response()
             }
-            APIError::_Custom(status, message) => {
+            APIError::Custom(status, message) => {
                 (status, Json(json!({ "error": message }))).into_response()
             }
         }

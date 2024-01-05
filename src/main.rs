@@ -30,6 +30,7 @@ async fn main() -> eyre::Result<()> {
         let _ = state.users.set(
             "henry",
             &crate::state::User {
+                role: Some("admin".to_string()),
                 public_keys: vec![("main".to_string(), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKpHLbfvXYR+OUXeh4GSpX26FJUUbT4UV2lOunYNH3a henry@macaroni".to_string())],
                 ssh_allow_password: true,
                 password_hash: argon2::Argon2::default()

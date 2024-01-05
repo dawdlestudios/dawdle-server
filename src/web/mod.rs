@@ -15,12 +15,16 @@ mod errors;
 mod middleware;
 mod webdav;
 
+pub async fn admintest(user: middleware::Admin) -> APIResult<impl IntoResponse> {
+    Ok((StatusCode::OK, "admin test").into_response())
+}
+
 pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
     let api_router = Router::new()
-        // unauthenticated routes
         .nest(
             "/api",
             Router::new()
+                .nest("/admin", Router::new().route("/", get(admintest)))
                 .route("/login", post(api::login))
                 .route("/logout", post(api::logout))
                 .route("/guestbook", get(api::get_guestbook))

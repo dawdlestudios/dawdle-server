@@ -18,10 +18,10 @@ pub struct LoginRequest {
     password: String,
 }
 
-const SESSION_COOKIE_MAX_AGE: Duration = Duration::days(7);
-const USERNAME_COOKIE_MAX_AGE: Duration = Duration::days(7);
-const USERNAME_COOKIE_NAME: &str = "clientside_username";
-const SESSION_COOKIE_NAME: &str = "session_token";
+pub const SESSION_COOKIE_MAX_AGE: Duration = Duration::days(7);
+pub const USERNAME_COOKIE_MAX_AGE: Duration = Duration::days(7);
+pub const USERNAME_COOKIE_NAME: &str = "clientside_username";
+pub const SESSION_COOKIE_NAME: &str = "session_token";
 
 #[axum::debug_handler]
 pub async fn login(
@@ -81,9 +81,7 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> APIResult<
     let session_token = jar.get(SESSION_COOKIE_NAME).map(|c| c.value().to_string());
 
     if let Some(session_token) = session_token {
-        state
-            .logout_session(&session_token)
-            .map_err(|_| APIError::InternalServerError)?;
+        let _ = state.logout_session(&session_token);
     }
 
     let remove_cookies = jar

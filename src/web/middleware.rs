@@ -1,4 +1,6 @@
-use crate::state::{Session, State as AppState};
+use super::errors::APIError;
+use crate::state::{Session, State as AppState, User};
+use crate::web::api::SESSION_COOKIE_NAME;
 use async_trait::async_trait;
 use axum::{
     body::Body,
@@ -7,8 +9,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum_extra::extract::CookieJar;
-
-use super::errors::APIError;
 
 #[derive(Debug)]
 pub struct BasicAuth(Option<String>);
@@ -48,17 +48,34 @@ impl FromRequestParts<AppState> for BasicAuth {
     }
 }
 
-#[derive(Debug)]
-pub struct RequiredSession(pub Session);
+pub struct Admin(pub User);
 
-impl RequiredSession {
-    pub fn username(&self) -> &str {
-        &self.0.username
+#[async_trait]
+impl FromRequestParts<AppState> for Admin {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let session = RequiredSession::from_request_parts(parts, state).await?;
+
+        let user = state
+            .users
+            .get(&session.username())
+            .map_err(|_| APIError::Unauthorized.into_response())?
+            .ok_or_else(|| APIError::Unauthorized.into_response())?;
+
+        if user.role.as_deref() != Some("admin") {
+            return Err(APIError::Unauthorized.into_response());
+        }
+
+        Ok(Admin(user))
     }
 }
 
 #[derive(Debug)]
-pub struct OptionalSession(pub Option<RequiredSession>);
+pub struct OptionalSession(pub Option<Session>);
 
 #[async_trait]
 impl FromRequestParts<AppState> for OptionalSession {
@@ -70,18 +87,27 @@ impl FromRequestParts<AppState> for OptionalSession {
     ) -> Result<Self, Self::Rejection> {
         use axum::RequestPartsExt;
 
-        let jar = parts
-            .extract::<CookieJar>()
-            .await
-            .map_err(|err| err.into_response())?;
+        let jar = parts.extract::<CookieJar>().await.map_err(|_| {
+            APIError::Custom(StatusCode::UNAUTHORIZED, "no session cookie".to_string())
+                .into_response()
+        })?;
 
-        if let Some(session_token) = jar.get("session_id").map(|c| c.value().to_string()) {
+        if let Some(session_token) = jar.get(SESSION_COOKIE_NAME).map(|c| c.value().to_string()) {
             if let Ok(session) = state.verify_session(&session_token) {
-                return Ok(OptionalSession(session.map(RequiredSession)));
+                return Ok(OptionalSession(session));
             }
         }
 
         Ok(OptionalSession(None))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RequiredSession(pub Session);
+
+impl RequiredSession {
+    pub fn username(&self) -> &str {
+        &self.0.username
     }
 }
 
@@ -94,7 +120,7 @@ impl FromRequestParts<AppState> for RequiredSession {
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         match OptionalSession::from_request_parts(parts, state).await {
-            Ok(OptionalSession(Some(valid_session))) => Ok(valid_session),
+            Ok(OptionalSession(Some(valid_session))) => Ok(RequiredSession(valid_session)),
             Ok(OptionalSession(None)) | Err(_) => Err(APIError::Unauthorized.into_response()),
         }
     }
