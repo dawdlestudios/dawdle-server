@@ -13,6 +13,12 @@ use axum_extra::extract::CookieJar;
 #[derive(Debug)]
 pub struct BasicAuth(Option<String>);
 
+impl BasicAuth {
+    pub fn username(&self) -> Option<&str> {
+        self.0.as_deref()
+    }
+}
+
 #[async_trait]
 impl FromRequestParts<AppState> for BasicAuth {
     type Rejection = Response;
@@ -24,6 +30,7 @@ impl FromRequestParts<AppState> for BasicAuth {
             .map(|inner| inner.to_str())
             .and_then(Result::ok)
         else {
+            log::info!("extension: {:?}", parts.extensions);
             if parts.extensions.get::<RequiredSession>().is_some() {
                 return Ok(BasicAuth(None));
             }
@@ -62,7 +69,7 @@ impl FromRequestParts<AppState> for Admin {
 
         let user = state
             .users
-            .get(&session.username())
+            .get(session.username())
             .map_err(|_| APIError::Unauthorized.into_response())?
             .ok_or_else(|| APIError::Unauthorized.into_response())?;
 
@@ -75,7 +82,13 @@ impl FromRequestParts<AppState> for Admin {
 }
 
 #[derive(Debug)]
-pub struct OptionalSession(pub Option<Session>);
+pub struct OptionalSession(Option<Session>);
+
+impl OptionalSession {
+    pub fn username(&self) -> Option<&str> {
+        self.0.as_ref().map(|s| &s.username[..])
+    }
+}
 
 #[async_trait]
 impl FromRequestParts<AppState> for OptionalSession {
@@ -94,6 +107,9 @@ impl FromRequestParts<AppState> for OptionalSession {
 
         if let Some(session_token) = jar.get(SESSION_COOKIE_NAME).map(|c| c.value().to_string()) {
             if let Ok(session) = state.verify_session(&session_token) {
+                if let Some(ref session) = session {
+                    parts.extensions.insert(RequiredSession(session.clone()));
+                }
                 return Ok(OptionalSession(session));
             }
         }
@@ -114,14 +130,13 @@ impl RequiredSession {
 #[async_trait]
 impl FromRequestParts<AppState> for RequiredSession {
     type Rejection = Response;
-
     async fn from_request_parts(
         parts: &mut Parts,
-        state: &AppState,
+        _state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        match OptionalSession::from_request_parts(parts, state).await {
-            Ok(OptionalSession(Some(valid_session))) => Ok(RequiredSession(valid_session)),
-            Ok(OptionalSession(None)) | Err(_) => Err(APIError::Unauthorized.into_response()),
+        match parts.extensions.get::<RequiredSession>() {
+            Some(session) => Ok(session.clone()),
+            None => Err(APIError::Unauthorized.into_response()),
         }
     }
 }

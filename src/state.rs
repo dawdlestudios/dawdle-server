@@ -57,6 +57,26 @@ pub struct State {
 
     pub subdomains: Arc<RwLock<HashMap<String, Website>>>,
     pub custom_domains: Arc<RwLock<HashMap<String, Website>>>,
+
+    pub config: Arc<Config>,
+}
+
+pub struct Config {
+    pub base_dir: String,
+    pub home_dirs: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let cwd = std::env::current_dir().expect("failed to get current dir");
+        Self {
+            home_dirs: ".files/home".to_string(),
+            base_dir: cwd
+                .to_str()
+                .expect("failed to convert cwd to str")
+                .to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +127,7 @@ impl State {
             applications,
             subdomains,
             custom_domains,
+            config: Arc::new(Config::default()),
         })
     }
 

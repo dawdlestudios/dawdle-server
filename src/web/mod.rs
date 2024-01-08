@@ -15,7 +15,7 @@ mod errors;
 mod middleware;
 mod webdav;
 
-pub async fn admintest(user: middleware::Admin) -> APIResult<impl IntoResponse> {
+pub async fn admintest(_user: middleware::Admin) -> APIResult<impl IntoResponse> {
     Ok((StatusCode::OK, "admin test").into_response())
 }
 
@@ -33,12 +33,10 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
                 .route("/me", get(api::get_me))
                 .route("/public_key", post(api::add_public_key))
                 .route("/public_key", delete(api::remove_public_key)),
-            // .route("/project", post(api::create_project))
-            //                                              .route("/project", delete(api::delete_project))
         )
-        .route("/webdav", any(webdav::handler))
-        .route("/webdav/", any(webdav::handler))
-        .route("/webdav/*rest", any(webdav::handler))
+        .route("/api/webdav", any(webdav::handler))
+        .route("/api/webdav/", any(webdav::handler))
+        .route("/api/webdav/*rest", any(webdav::handler))
         .fallback(|| async { APIResult::<Body>::Err(APIError::NotFound) })
         .with_state(state.clone());
 
