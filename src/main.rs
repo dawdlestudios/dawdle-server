@@ -4,6 +4,7 @@ mod ssh;
 mod state;
 mod utils;
 mod web;
+mod chat;
 
 use argon2::PasswordHasher;
 use color_eyre::eyre;

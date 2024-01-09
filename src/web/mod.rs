@@ -11,6 +11,7 @@ use tower::ServiceExt;
 use self::errors::{error_404, APIResult};
 
 mod api;
+mod chat;
 mod errors;
 mod middleware;
 mod webdav;
@@ -25,6 +26,7 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
             "/api",
             Router::new()
                 .nest("/admin", Router::new().route("/", get(admintest)))
+                .route("/chat", get(chat::handler))
                 .route("/login", post(api::login))
                 .route("/logout", post(api::logout))
                 .route("/guestbook", get(api::get_guestbook))

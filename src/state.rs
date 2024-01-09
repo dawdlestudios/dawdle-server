@@ -59,6 +59,7 @@ pub struct State {
     pub custom_domains: Arc<RwLock<HashMap<String, Website>>>,
 
     pub config: Arc<Config>,
+    pub chat: Arc<crate::chat::state::ChatState>,
 }
 
 pub struct Config {
@@ -128,6 +129,7 @@ impl State {
             subdomains,
             custom_domains,
             config: Arc::new(Config::default()),
+            chat: Arc::new(crate::chat::state::ChatState::new()),
         })
     }
 

@@ -42,6 +42,6 @@ dav-server={branch="feature/http-1.0", git="https://github.com/dawdlestudios/dav
 
 # web dependencies
 tower="0.4.13"
-axum={version="0.7.2", features=["macros"]}
-axum-extra={version="0.9", features=["cookie"]}
+axum={version="0.7.2", features=["macros", "ws"]}
+axum-extra={version="0.9", features=["cookie", "typed-header"]}
 addr="0.15.6"
