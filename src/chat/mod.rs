@@ -5,25 +5,58 @@ use serde::{Deserialize, Serialize};
 
 pub mod state;
 
-type Channel = String;
+type Room = String;
 type Username = String;
 type ChatMessage = String;
 
 #[derive(Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum ChatRequest {
-    Message(ChatMessage),
-    Join(Channel),
-    History,
+    Message { room: Room, message: ChatMessage },
+    Join { room: Room },
+    History { room: Room },
     Info,
 }
 
 #[derive(Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum ChatResponse {
-    Join(Username, Channel, time::OffsetDateTime),
-    Leave(Username, Channel, time::OffsetDateTime),
-    Message(Username, ChatMessage, Channel, time::OffsetDateTime),
+    Join {
+        username: Username,
+        room: Room,
+        time: u64,
+    },
+    Leave {
+        username: Username,
+        room: Room,
+        time: u64,
+    },
+    Message {
+        username: Username,
+        room: Room,
+        message: ChatMessage,
+        time: u64,
+    },
+    #[serde(rename_all = "camelCase")]
+    Info {
+        default_room: Room,
+        public_rooms: Vec<Room>,
+        private_rooms: Option<Vec<Room>>,
+    },
 
-    Error(String),
+    Room {
+        room: Room,
+        users: Vec<Username>,
+    },
+
+    RoomHistory {
+        room: Room,
+        history: Vec<(Username, ChatMessage, u64)>,
+    },
+
+    Error {
+        message: String,
+    },
 }
 
 fn response(chat_response: ChatResponse) -> Message {
@@ -35,6 +68,16 @@ pub async fn handle_chat_socket(stream: WebSocket, username: Option<String>, sta
     let (mut sender, mut receiver) = stream.split();
 
     let connection = chat.connect(username.clone());
+    chat.join_room("general", &connection.username);
+    log::info!("{} joined", connection.username);
+
+    let _ = sender
+        .send(response(ChatResponse::Info {
+            default_room: "general".to_string(),
+            public_rooms: Vec::new(),
+            private_rooms: None,
+        }))
+        .await;
 
     let mut rx = connection.channel.subscribe();
     let mut send_task = tokio::spawn(async move {
@@ -54,9 +97,9 @@ pub async fn handle_chat_socket(stream: WebSocket, username: Option<String>, sta
             let request: ChatRequest = match serde_json::from_str(&text) {
                 Ok(request) => request,
                 Err(err) => {
-                    let _ = recv_connection
-                        .channel
-                        .send(ChatResponse::Error(err.to_string()));
+                    let _ = recv_connection.channel.send(ChatResponse::Error {
+                        message: format!("Invalid request: {}", err),
+                    });
 
                     continue;
                 }
@@ -70,5 +113,6 @@ pub async fn handle_chat_socket(stream: WebSocket, username: Option<String>, sta
         _ = (&mut recv_task) => send_task.abort(),
     };
 
+    log::info!("{} left", connection.username);
     chat.disconnect(&connection.username)
 }
