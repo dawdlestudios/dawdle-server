@@ -7,12 +7,19 @@ pub mod state;
 
 type Room = String;
 type Username = String;
-type ChatMessage = String;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    username: Username,
+    room: Room,
+    message: String,
+    time: u64,
+}
 
 #[derive(Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ChatRequest {
-    Message { room: Room, message: ChatMessage },
+    Message { room: Room, message: String },
     Join { room: Room },
     History { room: Room },
     Info,
@@ -31,12 +38,7 @@ pub enum ChatResponse {
         room: Room,
         time: u64,
     },
-    Message {
-        username: Username,
-        room: Room,
-        message: ChatMessage,
-        time: u64,
-    },
+    Message(ChatMessage),
     #[serde(rename_all = "camelCase")]
     Info {
         default_room: Room,
@@ -51,7 +53,7 @@ pub enum ChatResponse {
 
     RoomHistory {
         room: Room,
-        history: Vec<(Username, ChatMessage, u64)>,
+        history: Vec<ChatMessage>,
     },
 
     Error {
@@ -69,15 +71,8 @@ pub async fn handle_chat_socket(stream: WebSocket, username: Option<String>, sta
 
     let connection = chat.connect(username.clone());
     chat.join_room("general", &connection.username);
-    log::info!("{} joined", connection.username);
 
-    let _ = sender
-        .send(response(ChatResponse::Info {
-            default_room: "general".to_string(),
-            public_rooms: Vec::new(),
-            private_rooms: None,
-        }))
-        .await;
+    log::info!("{} joined", connection.username);
 
     let mut rx = connection.channel.subscribe();
     let mut send_task = tokio::spawn(async move {
@@ -88,6 +83,9 @@ pub async fn handle_chat_socket(stream: WebSocket, username: Option<String>, sta
             }
         }
     });
+
+    connection.send_info("general", Vec::new());
+    connection.send_room_history("general", chat.room_history("general"));
 
     let recv_connection = connection.clone();
     let recv_chat = chat.clone();

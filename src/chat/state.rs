@@ -1,15 +1,23 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{atomic::AtomicU64, RwLock},
-};
-
+use crate::utils::RingBuffer;
+use dashmap::DashMap;
+use std::{collections::HashSet, sync::atomic::AtomicU64};
 use tokio::sync::broadcast;
 
-use super::{ChatRequest, ChatResponse};
+use super::{ChatMessage, ChatRequest, ChatResponse};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
 pub struct Room {
     connected_users: HashSet<String>,
+    message_history: RingBuffer<ChatMessage>,
+}
+
+impl Default for Room {
+    fn default() -> Self {
+        Self {
+            connected_users: HashSet::new(),
+            message_history: RingBuffer::new(20),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -18,10 +26,41 @@ pub struct Connection {
     pub(super) channel: broadcast::Sender<ChatResponse>,
 }
 
+impl Connection {
+    pub fn send(&self, message: ChatResponse) {
+        let _ = self.channel.send(message);
+    }
+
+    pub fn send_room_history(&self, room: &str, history: Vec<ChatMessage>) {
+        let err = self.channel.send(ChatResponse::RoomHistory {
+            room: room.to_string(),
+            history: history,
+        });
+    }
+
+    pub fn send_info(&self, default_room: &str, public_rooms: Vec<String>) {
+        let _ = self.channel.send(ChatResponse::Info {
+            default_room: default_room.to_string(),
+            public_rooms,
+            private_rooms: None,
+        });
+    }
+
+    // send a message only to this connection
+    pub fn send_msg(&self, username: &str, room: &str, message: &str) {
+        let _ = self.channel.send(ChatResponse::Message(ChatMessage {
+            username: username.to_string(),
+            message: message.to_string(),
+            room: room.to_string(),
+            time: time::OffsetDateTime::now_utc().unix_timestamp() as u64,
+        }));
+    }
+}
+
 #[derive(Debug)]
 pub struct ChatState {
-    pub connections: RwLock<HashMap<String, Connection>>,
-    pub rooms: RwLock<HashMap<String, Room>>,
+    pub connections: DashMap<String, Connection>,
+    pub rooms: DashMap<String, Room>,
     pub guest_id_counter: AtomicU64,
 }
 
@@ -29,21 +68,14 @@ impl ChatState {
     pub fn new() -> Self {
         Self {
             guest_id_counter: AtomicU64::new(0),
-            rooms: RwLock::new(HashMap::from_iter(
-                vec![("general".to_string(), Room::default())].into_iter(),
-            )),
-            connections: RwLock::new(HashMap::new()),
+            rooms: DashMap::from_iter(vec![("general".to_string(), Room::default())].into_iter()),
+            connections: DashMap::new(),
         }
-    }
-
-    pub fn room(&self, room: &str) -> Option<Room> {
-        self.rooms.read().unwrap().get(room).cloned()
     }
 
     // only if the room is exists
     pub fn join_room(&self, room: &str, username: &str) {
-        let mut rooms = self.rooms.write().unwrap();
-        if let Some(room) = rooms.get_mut(room) {
+        if let Some(mut room) = self.rooms.get_mut(room) {
             room.connected_users.insert(username.to_string());
         }
     }
@@ -57,37 +89,52 @@ impl ChatState {
         };
 
         self.connections
-            .write()
-            .unwrap()
-            .insert(username, connection.clone());
+            .insert(username.clone(), connection.clone());
 
         connection
     }
 
     pub fn disconnect(&self, username: &str) {
-        let mut rooms = self.rooms.write().unwrap();
-        for (_, room) in rooms.iter_mut() {
+        for mut room in self.rooms.iter_mut() {
             room.connected_users.remove(username);
         }
     }
 
     pub fn send_message(&self, room_name: &str, username: &str, message: String) {
-        let connections = self.connections.read().unwrap();
-        let Some(room) = self.room(room_name) else {
-            log::error!("room {} does not exist", room_name);
-            return;
+        let room = {
+            let Some(mut room) = self.rooms.get_mut(room_name) else {
+                log::error!("room {} does not exist", room_name);
+                return;
+            };
+
+            room.message_history.push(ChatMessage {
+                username: username.to_string(),
+                message: message.clone(),
+                room: room_name.to_string(),
+                time: time::OffsetDateTime::now_utc().unix_timestamp() as u64,
+            });
+
+            // don't keep the mut locked for longer than necessary
+            room.downgrade()
         };
 
-        for user in room.connected_users {
-            if let Some(connection) = connections.get(&user) {
-                log::info!("sending message to {}", user);
-                let _ = connection.channel.send(ChatResponse::Message {
+        for user in &room.connected_users {
+            if let Some(connection) = self.connections.get(user) {
+                let _ = connection.channel.send(ChatResponse::Message(ChatMessage {
                     username: username.to_string(),
                     message: message.clone(),
                     room: room_name.to_string(),
                     time: time::OffsetDateTime::now_utc().unix_timestamp() as u64,
-                });
+                }));
             }
+        }
+    }
+
+    pub fn room_history(&self, room_name: &str) -> Vec<ChatMessage> {
+        if let Some(room) = self.rooms.get(room_name) {
+            room.message_history.to_vec()
+        } else {
+            Vec::new()
         }
     }
 
@@ -98,8 +145,13 @@ impl ChatState {
                     self.handle_command(&room, &message, connection);
                     return;
                 }
-
                 self.send_message(&room, &connection.username, message);
+            }
+            ChatRequest::History { room: room_name } => {
+                if let Some(room) = self.rooms.get(&room_name) {
+                    let history = room.message_history.to_vec();
+                    connection.send_room_history(&room_name, history);
+                }
             }
             _ => {
                 let _ = connection.channel.send(ChatResponse::Error {
@@ -116,20 +168,11 @@ impl ChatState {
 
         match command {
             "/help" => {
-                let _ = connection.channel.send(ChatResponse::Message {
-                    username: "system".to_string(),
-                    message: "no commands available".to_string(),
-                    room: room.to_string(),
-                    time: time::OffsetDateTime::now_utc().unix_timestamp() as u64,
-                });
+                let _ = connection.send_msg("system", room, "no commands available");
             }
             _ => {
-                let _ = connection.channel.send(ChatResponse::Message {
-                    username: "system".to_string(),
-                    message: format!("unknown command: {}", command),
-                    room: room.to_string(),
-                    time: time::OffsetDateTime::now_utc().unix_timestamp() as u64,
-                });
+                let _ =
+                    connection.send_msg("system", room, &format!("unknown command: {}", command));
             }
         }
     }
