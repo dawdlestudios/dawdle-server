@@ -27,12 +27,8 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn send(&self, message: ChatResponse) {
-        let _ = self.channel.send(message);
-    }
-
     pub fn send_room_history(&self, room: &str, history: Vec<ChatMessage>) {
-        let err = self.channel.send(ChatResponse::RoomHistory {
+        let _ = self.channel.send(ChatResponse::RoomHistory {
             room: room.to_string(),
             history: history,
         });

@@ -1,4 +1,4 @@
-use crate::state::State as AppState;
+use crate::state::{Application, State as AppState};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use axum_extra::extract::{
     cookie::{Cookie, SameSite},
@@ -99,8 +99,9 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> APIResult<
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
-struct GuestbookEntry {
+struct GuestbookEntryResponse {
     date: u64,
+    by: String,
     message: String,
 }
 
@@ -119,12 +120,13 @@ pub async fn add_guestbook_entry(
 
 pub async fn get_guestbook(State(state): State<AppState>) -> APIResult<impl IntoResponse> {
     let entries = state
-        .guestbook()
+        .approved_guestbook_entries()
         .map_err(|_| APIError::InternalServerError)?
         .iter()
-        .map(|(date, msg)| GuestbookEntry {
-            date: *date,
-            message: msg.clone(),
+        .map(|entry| GuestbookEntryResponse {
+            date: entry.date,
+            by: entry.by.clone(),
+            message: entry.message.clone(),
         })
         .collect::<Vec<_>>();
 
@@ -248,6 +250,49 @@ pub async fn remove_public_key(
     tx.set(session.username(), &user)
         .map_err(|_| APIError::InternalServerError)?;
     tx.commit().map_err(|_| APIError::InternalServerError)?;
+
+    Ok((Json(json!({ "success": true }))).into_response())
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ApplicationRequest {
+    pub username: String,
+    pub email: String,
+    pub about: String,
+}
+
+pub async fn apply(
+    State(state): State<AppState>,
+    body: Json<ApplicationRequest>,
+) -> APIResult<impl IntoResponse> {
+    let application = body.0;
+
+    state
+        .apply(
+            &application.username,
+            &application.email,
+            &application.about,
+        )
+        .map_err(|_| APIError::InternalServerError)?;
+
+    Ok((Json(json!({ "success": true }))).into_response())
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ClaimRequest {
+    pub token: String,
+    pub username: String,
+}
+
+pub async fn claim(
+    State(state): State<AppState>,
+    body: Json<ClaimRequest>,
+) -> APIResult<impl IntoResponse> {
+    let token = body.0;
+
+    state
+        .claim(&token.token, &token.username)
+        .map_err(|_| APIError::InternalServerError)?;
 
     Ok((Json(json!({ "success": true }))).into_response())
 }

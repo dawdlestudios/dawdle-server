@@ -41,9 +41,23 @@ pub struct Project {
 
 #[derive(Serialize, Deserialize)]
 pub struct Application {
-    username: String,
-    email: String,
-    about: String,
+    pub id: String,
+    pub username: String,
+    pub email: String,
+    pub about: String,
+    pub date: time::OffsetDateTime,
+    pub approved: bool,
+    pub claimed: bool,
+    pub claim_token: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GuestbookEntry {
+    pub id: String,
+    pub date: u64,
+    pub by: String,
+    pub message: String,
+    pub approved: bool,
 }
 
 #[derive(Clone)]
@@ -51,9 +65,9 @@ pub struct State {
     pub sessions: DB<String, SerdeJson<Session>>,
     pub users: DB<String, SerdeJson<User>>,
     // pub projects: DB<String, SerdeJson<Project>>,
-    pub applications: DB<String, SerdeJson<(Application, time::OffsetDateTime)>>,
-    pub guestbook: DB<u64, String>,
-    pub guestbook_approved: DB<u64, String>,
+    pub applications: DB<String, SerdeJson<Application>>,
+    pub claim_tokens: DB<String, String>,
+    pub guestbook: DB<String, SerdeJson<GuestbookEntry>>,
 
     pub subdomains: Arc<RwLock<HashMap<String, Website>>>,
     pub custom_domains: Arc<RwLock<HashMap<String, Website>>>,
@@ -95,10 +109,9 @@ impl State {
     pub fn new(env: Env) -> Result<Self> {
         let users = env.open("users")?;
         let sessions = env.open("sessions")?;
-        // let projects = env.open("projects")?;
         let guestbook = env.open("guestbook")?;
-        let guestbook_approved = env.open("guestbook_approved")?;
         let applications = env.open("applications")?;
+        let claim_tokens = env.open("claim_tokens")?;
 
         let subdomains = Arc::new(RwLock::new(HashMap::new()));
         let custom_domains = Arc::new(RwLock::new(HashMap::new()));
@@ -122,11 +135,10 @@ impl State {
         Ok(Self {
             users,
             sessions,
-            // projects,
             guestbook,
-            guestbook_approved,
             applications,
             subdomains,
+            claim_tokens,
             custom_domains,
             config: Arc::new(Config::default()),
             chat: Arc::new(crate::chat::state::ChatState::new()),
@@ -134,21 +146,109 @@ impl State {
     }
 
     pub fn add_guestbook_entry(&self, entry: &str) -> Result<()> {
-        self.guestbook.set(
-            &(time::OffsetDateTime::now_utc().unix_timestamp() as u64),
-            entry,
-        )?;
+        let id = cuid();
+
+        let entry = GuestbookEntry {
+            id: id.clone(),
+            date: time::OffsetDateTime::now_utc().unix_timestamp() as u64,
+            by: "guest".to_string(),
+            message: entry.to_string(),
+            approved: false,
+        };
+
+        self.guestbook.set(&id, &entry)?;
         Ok(())
     }
 
-    pub fn guestbook(&self) -> Result<Vec<(u64, String)>> {
-        let mut guestbook = self
-            .guestbook_approved
-            .iter()?
-            .collect::<Result<Vec<_>, _>>()?;
+    pub fn guestbook_entries(&self) -> Result<Vec<GuestbookEntry>> {
+        let entries = self.guestbook.iter()?.collect::<Result<Vec<_>, _>>()?;
+        Ok(entries.into_iter().map(|(_, v)| v).collect())
+    }
 
-        guestbook.sort_by_key(|(k, _)| *k);
-        Ok(guestbook)
+    pub fn approved_guestbook_entries(&self) -> Result<Vec<GuestbookEntry>> {
+        let entries = self.guestbook.iter()?.collect::<Result<Vec<_>, _>>()?;
+        Ok(entries
+            .into_iter()
+            .map(|(_, v)| v)
+            .filter(|entry| entry.approved)
+            .collect())
+    }
+
+    pub fn approve_guestbook_entry(&self, id: &str) -> Result<()> {
+        let entry: GuestbookEntry = self
+            .guestbook
+            .get(id)?
+            .ok_or_else(|| eyre!("entry not found"))?;
+
+        let entry = GuestbookEntry {
+            approved: true,
+            ..entry
+        };
+
+        self.guestbook.set(id, &entry)?;
+        Ok(())
+    }
+
+    pub fn applications(&self) -> Result<Vec<Application>> {
+        let applications = self.applications.iter()?.collect::<Result<Vec<_>, _>>()?;
+        Ok(applications.into_iter().map(|(_, v)| v).collect())
+    }
+
+    pub fn approve_application(&self, username: &str) -> Result<String> {
+        let application: Application = self
+            .applications
+            .get(username)?
+            .ok_or_else(|| eyre!("application not found"))?;
+
+        let token = cuid();
+        let application = Application {
+            approved: true,
+            claimed: false,
+            claim_token: Some(token.clone()),
+            ..application
+        };
+
+        self.applications.set(username, &application)?;
+        self.claim_tokens.set(&token, username)?;
+
+        Ok(token)
+    }
+
+    pub fn apply(&self, username: &str, email: &str, about: &str) -> Result<()> {
+        let id = cuid();
+        let application = Application {
+            id: id.clone(),
+            username: username.to_string(),
+            email: email.to_string(),
+            about: about.to_string(),
+            date: time::OffsetDateTime::now_utc(),
+            approved: false,
+            claimed: false,
+            claim_token: None,
+        };
+
+        self.applications.set_nx(username, &application)?;
+
+        Ok(())
+    }
+
+    pub fn claim(&self, token: &str, username: &str) -> Result<()> {
+        let application: Application = self
+            .applications
+            .get(username)?
+            .ok_or_else(|| eyre!("application not found"))?;
+
+        if application.claim_token != Some(token.to_string()) {
+            return Err(eyre!("invalid claim token"));
+        }
+
+        let application = Application {
+            claimed: true,
+            ..application
+        };
+
+        self.applications.set(username, &application)?;
+        Ok(())
     }
 
     pub fn create_session(&self, username: &str) -> Result<String> {

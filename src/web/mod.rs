@@ -11,30 +11,35 @@ use tower::ServiceExt;
 use self::errors::{error_404, APIResult};
 
 mod api;
+mod api_admin;
 mod chat;
 mod errors;
 mod middleware;
 mod webdav;
 
-pub async fn admintest(_user: middleware::Admin) -> APIResult<impl IntoResponse> {
-    Ok((StatusCode::OK, "admin test").into_response())
-}
-
 pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
+    let admin_router = Router::new()
+        .route("/", post(api_admin::is_admin))
+        .route("/guestbook", get(api_admin::get_guestbook_requests))
+        .route("/guestbook", post(api_admin::approve_guestbook_entry))
+        .route("/applications", get(api_admin::get_applications))
+        .route("/applications", post(api_admin::approve_application));
+
     let api_router = Router::new()
         .nest(
             "/api",
             Router::new()
-                .nest("/admin", Router::new().route("/", get(admintest)))
+                .nest("/admin", admin_router)
                 .route("/chat", get(chat::handler))
                 .route("/login", post(api::login))
                 .route("/logout", post(api::logout))
                 .route("/guestbook", get(api::get_guestbook))
                 .route("/guestbook", post(api::add_guestbook_entry))
-                .route("/test", get((StatusCode::OK, "test")))
                 .route("/me", get(api::get_me))
                 .route("/public_key", post(api::add_public_key))
-                .route("/public_key", delete(api::remove_public_key)),
+                .route("/public_key", delete(api::remove_public_key))
+                .route("/apply", post(api::apply))
+                .route("/claim", post(api::claim)),
         )
         .route("/api/webdav", any(webdav::handler))
         .route("/api/webdav/", any(webdav::handler))
