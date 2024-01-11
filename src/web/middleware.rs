@@ -30,7 +30,6 @@ impl FromRequestParts<AppState> for BasicAuth {
             .map(|inner| inner.to_str())
             .and_then(Result::ok)
         else {
-            log::info!("extension: {:?}", parts.extensions);
             if parts.extensions.get::<RequiredSession>().is_some() {
                 return Ok(BasicAuth(None));
             }
@@ -134,8 +133,8 @@ impl FromRequestParts<AppState> for RequiredSession {
         parts: &mut Parts,
         _state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        match parts.extensions.get::<RequiredSession>() {
-            Some(session) => Ok(session.clone()),
+        match OptionalSession::from_request_parts(parts, _state).await?.0 {
+            Some(session) => Ok(RequiredSession(session)),
             None => Err(APIError::Unauthorized.into_response()),
         }
     }

@@ -189,6 +189,19 @@ pub async fn add_public_key(
             .into_response());
     }
 
+    // try to parse the key to make sure it's valid
+    let k = ssh_key::PublicKey::from_openssh(&key)
+        .map_err(|_| APIError::BadRequest("invalid public key".to_string()))?;
+
+    matches! {
+        k.algorithm(),
+        ssh_key::Algorithm::Ed25519
+    }
+    .then(|| ())
+    .ok_or(APIError::BadRequest(
+        "invalid public key format".to_string(),
+    ))?;
+
     user.public_keys.push((name, key));
     tx.set(session.username(), &user)
         .map_err(|_| APIError::InternalServerError)?;
