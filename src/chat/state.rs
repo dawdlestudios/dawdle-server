@@ -30,7 +30,7 @@ impl Connection {
     pub fn send_room_history(&self, room: &str, history: Vec<ChatMessage>) {
         let _ = self.channel.send(ChatResponse::RoomHistory {
             room: room.to_string(),
-            history: history,
+            history,
         });
     }
 
@@ -64,7 +64,7 @@ impl ChatState {
     pub fn new() -> Self {
         Self {
             guest_id_counter: AtomicU64::new(0),
-            rooms: DashMap::from_iter(vec![("general".to_string(), Room::default())].into_iter()),
+            rooms: DashMap::from_iter(vec![("general".to_string(), Room::default())]),
             connections: DashMap::new(),
         }
     }
@@ -160,15 +160,14 @@ impl ChatState {
     pub fn handle_command(&self, room: &str, message: &str, connection: Connection) {
         let mut parts = message.split_whitespace();
         let command = parts.next().unwrap_or("");
-        let args = parts.collect::<Vec<_>>();
+        let _args = parts.collect::<Vec<_>>();
 
         match command {
             "/help" => {
-                let _ = connection.send_msg("system", room, "no commands available");
+                connection.send_msg("system", room, "no commands available");
             }
             _ => {
-                let _ =
-                    connection.send_msg("system", room, &format!("unknown command: {}", command));
+                connection.send_msg("system", room, &format!("unknown command: {}", command));
             }
         }
     }

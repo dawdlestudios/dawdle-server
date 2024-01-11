@@ -1,4 +1,4 @@
-use crate::state::{Application, State as AppState};
+use crate::state::State as AppState;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use axum_extra::extract::{
     cookie::{Cookie, SameSite},
@@ -282,6 +282,7 @@ pub async fn apply(
 pub struct ClaimRequest {
     pub token: String,
     pub username: String,
+    pub password: String,
 }
 
 pub async fn claim(
@@ -291,8 +292,11 @@ pub async fn claim(
     let token = body.0;
 
     state
-        .claim(&token.token, &token.username)
-        .map_err(|_| APIError::InternalServerError)?;
+        .claim(&token.token, &token.username, &token.password)
+        .map_err(|e| {
+            log::error!("error claiming application: {:?}", e);
+            APIError::InternalServerError
+        })?;
 
     Ok((Json(json!({ "success": true }))).into_response())
 }

@@ -5,7 +5,6 @@ use bollard::{
 };
 use color_eyre::eyre::{eyre, Result};
 use futures::Stream;
-use log::info;
 use std::pin::Pin;
 use tokio::io::AsyncWrite;
 
@@ -156,8 +155,6 @@ impl Containers {
             .iter()
             .find(|c| {
                 c.names.as_ref().map(|n| {
-                    log::info!("names: {:?}", n);
-                    log::info!("user: {}", user);
                     n.contains(&format!(
                         "/{}{}",
                         crate::config::DOCKER_CONTAINER_PREFIX,
@@ -166,8 +163,6 @@ impl Containers {
                 }) == Some(true)
             })
             .and_then(|c| c.id.clone());
-
-        info!("container: {:?}", container);
         Ok(container)
     }
 

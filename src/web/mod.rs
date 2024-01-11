@@ -1,7 +1,7 @@
 use crate::{state::State as AppState, web::errors::APIError};
 use axum::{
-    body::Body, extract::Request, handler::HandlerWithoutStateExt, http::StatusCode,
-    response::IntoResponse, routing::*, Router,
+    body::Body, extract::Request, handler::HandlerWithoutStateExt, response::IntoResponse,
+    routing::*, Router,
 };
 
 use color_eyre::eyre::Result;

@@ -43,15 +43,20 @@ pub async fn get_applications(
     Ok((Json(applications)).into_response())
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct IdRequest {
+    id: String,
+}
+
 pub async fn approve_application(
     _user: middleware::Admin,
     State(state): State<AppState>,
-    body: Json<String>,
+    body: Json<IdRequest>,
 ) -> APIResult<impl IntoResponse> {
-    let username = body.0;
+    let id = body.0.id;
 
     let token = state
-        .approve_application(&username)
+        .approve_application(&id)
         .map_err(|_| super::errors::APIError::InternalServerError)?;
 
     Ok((Json(json!({ "success": true, "token": token }))).into_response())

@@ -1,12 +1,11 @@
+mod chat;
 mod config;
 mod containers;
 mod ssh;
 mod state;
 mod utils;
 mod web;
-mod chat;
 
-use argon2::PasswordHasher;
 use color_eyre::eyre;
 use containers::Containers;
 use log::{info, LevelFilter};
@@ -34,16 +33,11 @@ async fn main() -> eyre::Result<()> {
                 role: Some("admin".to_string()),
                 public_keys: vec![("main".to_string(), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKpHLbfvXYR+OUXeh4GSpX26FJUUbT4UV2lOunYNH3a henry@macaroni".to_string())],
                 ssh_allow_password: true,
-                password_hash: argon2::Argon2::default()
-                    .hash_password(
-                        "password".as_bytes(),
-                        &argon2::password_hash::SaltString::generate(&mut rand::rngs::OsRng),
-                    )? 
-                    .to_string(),
+                password_hash: crate::utils::hash_pw("password")?,
             },
         );
     }
- 
+
     let api_addr: SocketAddr = "127.0.0.1:8008".parse()?;
     let api_server = web::run(state.clone(), api_addr);
 

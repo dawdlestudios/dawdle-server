@@ -271,8 +271,6 @@ impl russh::server::Handler for SshSession {
         data: &[u8],
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
-        log::info!("exec_request");
-
         let Ok(command) = String::from_utf8(data.to_vec()) else {
             bail!("command is not valid utf8");
         };
@@ -292,8 +290,6 @@ impl russh::server::Handler for SshSession {
         channel_id: ChannelId,
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
-        log::info!("shell_request");
-
         let Some(user) = self.user.as_ref() else {
             bail!("user not found");
         };
@@ -426,12 +422,10 @@ impl russh::server::Handler for SshSession {
         channel_id: ChannelId,
         col_width: u32,
         row_height: u32,
-        pix_width: u32,
-        pix_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
-        log::info!("window_change_request channel_id = {channel_id:?} col_width = {col_width} row_height = {row_height}, pix_width = {pix_width}, pix_height = {pix_height}");
-
         {
             let Some(mut channel) = self.channels.get_mut(&channel_id) else {
                 bail!("channel not found");
@@ -453,8 +447,6 @@ impl russh::server::Handler for SshSession {
         channel_id: ChannelId,
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
-        log::info!("channel_close channel_id = {channel_id:?}");
-
         // Clean up
         if let Some((_, channel)) = self.channels.remove(&channel_id) {
             if let Some(pty) = channel.pty {

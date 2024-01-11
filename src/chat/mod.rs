@@ -28,16 +28,16 @@ pub enum ChatRequest {
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ChatResponse {
-    Join {
-        username: Username,
-        room: Room,
-        time: u64,
-    },
-    Leave {
-        username: Username,
-        room: Room,
-        time: u64,
-    },
+    // Join {
+    //     username: Username,
+    //     room: Room,
+    //     time: u64,
+    // },
+    // Leave {
+    //     username: Username,
+    //     room: Room,
+    //     time: u64,
+    // },
     Message(ChatMessage),
     #[serde(rename_all = "camelCase")]
     Info {
@@ -46,11 +46,10 @@ pub enum ChatResponse {
         private_rooms: Option<Vec<Room>>,
     },
 
-    Room {
-        room: Room,
-        users: Vec<Username>,
-    },
-
+    // Room {
+    //     room: Room,
+    //     users: Vec<Username>,
+    // },
     RoomHistory {
         room: Room,
         history: Vec<ChatMessage>,
@@ -71,8 +70,6 @@ pub async fn handle_chat_socket(stream: WebSocket, username: Option<String>, sta
 
     let connection = chat.connect(username.clone());
     chat.join_room("general", &connection.username);
-
-    log::info!("{} joined", connection.username);
 
     let mut rx = connection.channel.subscribe();
     let mut send_task = tokio::spawn(async move {
@@ -111,6 +108,5 @@ pub async fn handle_chat_socket(stream: WebSocket, username: Option<String>, sta
         _ = (&mut recv_task) => send_task.abort(),
     };
 
-    log::info!("{} left", connection.username);
     chat.disconnect(&connection.username)
 }

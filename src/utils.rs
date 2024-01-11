@@ -1,5 +1,7 @@
 use std::fmt::{self, Debug, Formatter};
 
+use argon2::PasswordHasher;
+
 pub fn is_valid_username(username: &str) -> bool {
     !username.is_empty()
         && username.len() < 32
@@ -62,4 +64,13 @@ impl<T: Clone + Debug> RingBuffer<T> {
         }
         result
     }
+}
+
+pub fn hash_pw(password: &str) -> color_eyre::eyre::Result<String> {
+    Ok(argon2::Argon2::default()
+        .hash_password(
+            password.as_bytes(),
+            &argon2::password_hash::SaltString::generate(&mut rand::rngs::OsRng),
+        )?
+        .to_string())
 }

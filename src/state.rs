@@ -45,7 +45,7 @@ pub struct Application {
     pub username: String,
     pub email: String,
     pub about: String,
-    pub date: time::OffsetDateTime,
+    pub date: u64,
     pub approved: bool,
     pub claimed: bool,
     pub claim_token: Option<String>,
@@ -60,13 +60,15 @@ pub struct GuestbookEntry {
     pub approved: bool,
 }
 
+type ApplicationID = String;
+
 #[derive(Clone)]
 pub struct State {
     pub sessions: DB<String, SerdeJson<Session>>,
     pub users: DB<String, SerdeJson<User>>,
     // pub projects: DB<String, SerdeJson<Project>>,
     pub applications: DB<String, SerdeJson<Application>>,
-    pub claim_tokens: DB<String, String>,
+    pub claim_tokens: DB<String, ApplicationID>,
     pub guestbook: DB<String, SerdeJson<GuestbookEntry>>,
 
     pub subdomains: Arc<RwLock<HashMap<String, Website>>>,
@@ -194,10 +196,10 @@ impl State {
         Ok(applications.into_iter().map(|(_, v)| v).collect())
     }
 
-    pub fn approve_application(&self, username: &str) -> Result<String> {
+    pub fn approve_application(&self, id: &str) -> Result<String> {
         let application: Application = self
             .applications
-            .get(username)?
+            .get(id)?
             .ok_or_else(|| eyre!("application not found"))?;
 
         let token = cuid();
@@ -208,8 +210,8 @@ impl State {
             ..application
         };
 
-        self.applications.set(username, &application)?;
-        self.claim_tokens.set(&token, username)?;
+        self.applications.set(id, &application)?;
+        self.claim_tokens.set(&token, &application.id)?;
 
         Ok(token)
     }
@@ -221,25 +223,33 @@ impl State {
             username: username.to_string(),
             email: email.to_string(),
             about: about.to_string(),
-            date: time::OffsetDateTime::now_utc(),
+            date: time::OffsetDateTime::now_utc().unix_timestamp() as u64,
             approved: false,
             claimed: false,
             claim_token: None,
         };
 
-        self.applications.set_nx(username, &application)?;
-
+        self.applications.set_nx(&id, &application)?;
         Ok(())
     }
 
-    pub fn claim(&self, token: &str, username: &str) -> Result<()> {
+    pub fn claim(&self, token: &str, username: &str, pw: &str) -> Result<()> {
+        let application_id = self
+            .claim_tokens
+            .get(token)?
+            .ok_or_else(|| eyre!("invalid claim token"))?;
+
         let application: Application = self
             .applications
-            .get(username)?
+            .get(&application_id)?
             .ok_or_else(|| eyre!("application not found"))?;
 
         if application.claim_token != Some(token.to_string()) {
             return Err(eyre!("invalid claim token"));
+        }
+
+        if application.username != username {
+            return Err(eyre!("invalid username"));
         }
 
         let application = Application {
@@ -247,7 +257,17 @@ impl State {
             ..application
         };
 
-        self.applications.set(username, &application)?;
+        self.users.set_nx(
+            &application.username,
+            &User {
+                password_hash: crate::utils::hash_pw(pw).map_err(|_| eyre!("failed to hash pw"))?,
+                ssh_allow_password: false,
+                public_keys: vec![],
+                role: None,
+            },
+        )?;
+
+        self.applications.set(&application_id, &application)?;
         Ok(())
     }
 
