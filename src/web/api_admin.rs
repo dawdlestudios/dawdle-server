@@ -1,5 +1,5 @@
 use super::{errors::APIResult, middleware};
-use crate::state::State as AppState;
+use crate::state::AppState;
 use axum::{extract::State, response::IntoResponse, Json};
 use serde_json::json;
 
@@ -12,6 +12,7 @@ pub async fn get_guestbook_requests(
     State(state): State<AppState>,
 ) -> APIResult<impl IntoResponse> {
     let entries = state
+        .guestbook
         .guestbook_entries()
         .map_err(|_| super::errors::APIError::InternalServerError)?;
 
@@ -26,6 +27,7 @@ pub async fn approve_guestbook_entry(
     let id = body.0;
 
     state
+        .guestbook
         .approve_guestbook_entry(&id)
         .map_err(|_| super::errors::APIError::InternalServerError)?;
 
@@ -37,6 +39,7 @@ pub async fn get_applications(
     State(state): State<AppState>,
 ) -> APIResult<impl IntoResponse> {
     let applications = state
+        .user
         .applications()
         .map_err(|_| super::errors::APIError::InternalServerError)?;
 
@@ -56,6 +59,7 @@ pub async fn approve_application(
     let id = body.0.id;
 
     let token = state
+        .user
         .approve_application(&id)
         .map_err(|_| super::errors::APIError::InternalServerError)?;
 

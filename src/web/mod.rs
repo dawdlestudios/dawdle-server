@@ -1,4 +1,4 @@
-use crate::{state::State as AppState, web::errors::APIError};
+use crate::{state::AppState, web::errors::APIError};
 use axum::{
     body::Body, extract::Request, handler::HandlerWithoutStateExt, response::IntoResponse,
     routing::*, Router,

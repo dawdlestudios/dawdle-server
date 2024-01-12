@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 
 use super::sftp::SftpSession;
 use crate::containers::{AttachInput, Containers};
-use crate::state::{State, User};
+use crate::state::{AppState, User};
 use async_trait::async_trait;
 use russh::server::{Auth, Msg, Session};
 use russh::{Channel, ChannelId, CryptoVec};
@@ -40,7 +40,7 @@ struct SshUser {
 
 pub struct SshSession {
     /// The command to run, if any.
-    state: State,
+    state: AppState,
     user: Option<SshUser>,
 
     command: Option<String>,
@@ -50,7 +50,7 @@ pub struct SshSession {
 }
 
 impl SshSession {
-    pub fn new(containers: Containers, state: State) -> Self {
+    pub fn new(containers: Containers, state: AppState) -> Self {
         Self {
             state,
             user: None,
@@ -75,15 +75,13 @@ impl SshSession {
                 }
             }
             None => {
-                let Some(user) = self.state.users.get(username)? else {
+                let Some(user) = self.state.user.get(username)? else {
                     bail!("user not found");
                 };
 
                 user
             }
         };
-
-        info!("user: {:?}", user);
 
         let keys = user
             .public_keys
@@ -173,7 +171,6 @@ impl russh::server::Handler for SshSession {
         _public_key: &russh_keys::key::PublicKey,
     ) -> Result<(Self, Auth), Self::Error> {
         // let user = self.get_user(user).await?;
-
         Ok((self, Auth::Accept))
     }
 
@@ -226,19 +223,12 @@ impl russh::server::Handler for SshSession {
     ) -> Result<(Self, Session), Self::Error> {
         // TODO: handle different pty types
         self.term = term.to_string();
-
-        debug!(
-            "pty_request: {}, {}, {}, {}, {}, {:?}",
-            term, col_width, row_height, pix_width, pix_height, modes
-        );
-
         self.channels.alter(&channel, |k, mut v| {
             v.pty_size = Some((col_width as u16, row_height as u16));
             v.pty_modes = Some(modes.to_vec());
             v.pty_term = Some(term.to_string());
             v
         });
-
         Ok((self, session))
     }
 
@@ -248,20 +238,16 @@ impl russh::server::Handler for SshSession {
         name: &str,
         mut session: Session,
     ) -> Result<(Self, Session), Self::Error> {
-        info!("subsystem: {}", name);
-
         if name == "sftp" {
             let Some(channel) = self.remove_channel(channel_id).await else {
                 bail!("channel not found");
             };
-
             let sftp = SftpSession::default();
             session.channel_success(channel_id);
             russh_sftp::server::run(channel.handle.into_stream(), sftp).await;
         } else {
             session.channel_failure(channel_id);
         }
-
         Ok((self, session))
     }
 
@@ -281,7 +267,6 @@ impl russh::server::Handler for SshSession {
         // self.command = Some("".to_string() + &command);
 
         let (self, session) = self.shell_request(channel, session).await?;
-
         Ok((self, session))
     }
 
@@ -409,7 +394,6 @@ impl russh::server::Handler for SshSession {
                 // }
             } else {
                 error!("no pty for channel {}", channel_id);
-                // bail!("no pty for channel {}", channel_id);
             }
         }
 

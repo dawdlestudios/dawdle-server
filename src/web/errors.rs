@@ -22,6 +22,12 @@ pub enum APIError {
     Custom(StatusCode, String),
 }
 
+impl APIError {
+    pub fn custom(status: StatusCode, message: &str) -> Self {
+        APIError::Custom(status, message.to_string())
+    }
+}
+
 impl IntoResponse for APIError {
     fn into_response(self) -> axum::http::Response<Body> {
         match self {

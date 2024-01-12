@@ -1,4 +1,4 @@
-use crate::state::State as AppState;
+use crate::state::AppState;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};

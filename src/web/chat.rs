@@ -1,5 +1,5 @@
 use super::middleware::OptionalSession;
-use crate::state::State as AppState;
+use crate::state::AppState;
 use axum::{
     extract::{State, WebSocketUpgrade},
     response::IntoResponse,

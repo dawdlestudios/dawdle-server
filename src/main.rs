@@ -19,7 +19,7 @@ async fn main() -> eyre::Result<()> {
     env_logger::builder().filter_level(LevelFilter::Info).init();
 
     let env = state::create_env()?;
-    let state = state::State::new(env)?;
+    let state = state::AppState::new(env)?;
 
     let containers = Containers::new()?;
     containers.init().await?;
@@ -27,11 +27,11 @@ async fn main() -> eyre::Result<()> {
     if cfg!(debug_assertions) {
         log::warn!("running in debug mode! this is not secure!");
 
-        let _ = state.users.set(
+        let _ = state.user.create(
             "henry",
-            &crate::state::User {
+            crate::state::User {
                 role: Some("admin".to_string()),
-                public_keys: vec![("main".to_string(), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKpHLbfvXYR+OUXeh4GSpX26FJUUbT4UV2lOunYNH3a henry@macaroni".to_string())],
+                public_keys: vec![("main".to_string(), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDfx0dXF4OM2HiE550bb7VnN/aKVTK+bZud1EVB4WYRX henry@tempora".to_string())],
                 ssh_allow_password: true,
                 password_hash: crate::utils::hash_pw("password")?,
             },
@@ -47,10 +47,9 @@ async fn main() -> eyre::Result<()> {
 
     info!("api server listening on {}", api_addr);
     info!("ssh server listening on {}", ssh_addr);
-    select! {
-        _ = ssh_server => {}
-        _ = api_server => {}
-    }
 
-    Ok(())
+    select! {
+        r = ssh_server => r,
+        r = api_server => r
+    }
 }

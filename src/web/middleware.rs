@@ -1,5 +1,5 @@
 use super::errors::APIError;
-use crate::state::{Session, State as AppState, User};
+use crate::state::{AppState, Session, User};
 use crate::web::api::SESSION_COOKIE_NAME;
 use async_trait::async_trait;
 use axum::{
@@ -67,7 +67,7 @@ impl FromRequestParts<AppState> for Admin {
         let session = RequiredSession::from_request_parts(parts, state).await?;
 
         let user = state
-            .users
+            .user
             .get(session.username())
             .map_err(|_| APIError::Unauthorized.into_response())?
             .ok_or_else(|| APIError::Unauthorized.into_response())?;
@@ -105,7 +105,7 @@ impl FromRequestParts<AppState> for OptionalSession {
         })?;
 
         if let Some(session_token) = jar.get(SESSION_COOKIE_NAME).map(|c| c.value().to_string()) {
-            if let Ok(session) = state.verify_session(&session_token) {
+            if let Ok(session) = state.user.verify_session(&session_token) {
                 if let Some(ref session) = session {
                     parts.extensions.insert(RequiredSession(session.clone()));
                 }

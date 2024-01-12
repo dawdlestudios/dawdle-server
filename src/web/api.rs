@@ -1,4 +1,4 @@
-use crate::state::State as AppState;
+use crate::state::AppState;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use axum_extra::extract::{
     cookie::{Cookie, SameSite},
@@ -31,23 +31,23 @@ pub async fn login(
 ) -> APIResult<impl IntoResponse> {
     let LoginRequest { username, password } = body.0;
 
-    let valid = state.verify_password(&username, &password).map_err(|e| {
-        log::error!("error verifying password: {:?}", e);
-        APIError::Unauthorized
-    })?;
+    let valid = state
+        .user
+        .verify_password(&username, &password)
+        .map_err(|e| {
+            log::error!("error verifying password: {:?}", e);
+            APIError::Unauthorized
+        })?;
 
     if !valid {
-        return Ok((
+        return Err(APIError::custom(
             StatusCode::UNAUTHORIZED,
-            Json(json!({
-                "success": false,
-                "error": "invalid username or password",
-            })),
-        )
-            .into_response());
+            &"invalid password",
+        ));
     };
 
     let session = state
+        .user
         .create_session(&username)
         .map_err(|_| APIError::InternalServerError)?;
 
@@ -81,7 +81,7 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> APIResult<
     let session_token = jar.get(SESSION_COOKIE_NAME).map(|c| c.value().to_string());
 
     if let Some(session_token) = session_token {
-        let _ = state.logout_session(&session_token);
+        let _ = state.user.logout_session(&session_token);
     }
 
     let remove_cookies = jar
@@ -112,6 +112,7 @@ pub async fn add_guestbook_entry(
     let entry = body.0;
 
     state
+        .guestbook
         .add_guestbook_entry(&entry)
         .map_err(|_| APIError::InternalServerError)?;
 
@@ -120,6 +121,7 @@ pub async fn add_guestbook_entry(
 
 pub async fn get_guestbook(State(state): State<AppState>) -> APIResult<impl IntoResponse> {
     let entries = state
+        .guestbook
         .approved_guestbook_entries()
         .map_err(|_| APIError::InternalServerError)?
         .iter()
@@ -144,7 +146,7 @@ pub async fn get_me(
     State(state): State<AppState>,
 ) -> APIResult<impl IntoResponse> {
     let user = state
-        .users
+        .user
         .get(session.username())
         .map_err(|_| APIError::InternalServerError)?
         .ok_or(APIError::InternalServerError)?;
@@ -169,45 +171,13 @@ pub async fn add_public_key(
 ) -> APIResult<impl IntoResponse> {
     let AddPublicKeyRequest { name, key } = body.0;
 
-    let tx = state
-        .users
-        .transaction()
-        .map_err(|_| APIError::InternalServerError)?;
-
-    let mut user = state
-        .users
-        .get(session.username())
-        .map_err(|_| APIError::InternalServerError)?
-        .ok_or(APIError::InternalServerError)?;
-
-    if user.public_keys.iter().any(|(n, _)| n == &name) {
-        return Ok((
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "success": false,
-                "error": "key name already exists",
-            })),
-        )
-            .into_response());
-    }
-
-    // try to parse the key to make sure it's valid
-    let k = ssh_key::PublicKey::from_openssh(&key)
-        .map_err(|_| APIError::BadRequest("invalid public key".to_string()))?;
-
-    matches! {
-        k.algorithm(),
-        ssh_key::Algorithm::Ed25519
-    }
-    .then(|| ())
-    .ok_or(APIError::BadRequest(
-        "invalid public key format".to_string(),
-    ))?;
-
-    user.public_keys.push((name, key));
-    tx.set(session.username(), &user)
-        .map_err(|_| APIError::InternalServerError)?;
-    tx.commit().map_err(|_| APIError::InternalServerError)?;
+    state
+        .user
+        .add_public_key(session.username(), &name, &key)
+        .map_err(|_| {
+            log::error!("error adding public key");
+            APIError::InternalServerError
+        })?;
 
     Ok((Json(json!({ "success": true }))).into_response())
 }
@@ -223,33 +193,10 @@ pub async fn remove_public_key(
     body: Json<RemovePublicKeyRequest>,
 ) -> APIResult<impl IntoResponse> {
     let RemovePublicKeyRequest { name } = body.0;
-
-    let tx = state
-        .users
-        .transaction()
-        .map_err(|_| APIError::InternalServerError)?;
-
-    let mut user = state
-        .users
-        .get(session.username())
-        .map_err(|_| APIError::InternalServerError)?
-        .ok_or(APIError::InternalServerError)?;
-
-    if !user.public_keys.iter().any(|(n, _)| n == &name) {
-        return Ok((
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "success": false,
-                "error": "key name does not exist",
-            })),
-        )
-            .into_response());
-    }
-
-    user.public_keys.retain(|(n, _)| n != &name);
-    tx.set(session.username(), &user)
-        .map_err(|_| APIError::InternalServerError)?;
-    tx.commit().map_err(|_| APIError::InternalServerError)?;
+    state
+        .user
+        .remove_public_key(session.username(), &name)
+        .map_err(|_| APIError::custom(StatusCode::BAD_REQUEST, "key name does not exist"))?;
 
     Ok((Json(json!({ "success": true }))).into_response())
 }
@@ -268,6 +215,7 @@ pub async fn apply(
     let application = body.0;
 
     state
+        .user
         .apply(
             &application.username,
             &application.email,
@@ -292,6 +240,7 @@ pub async fn claim(
     let token = body.0;
 
     state
+        .user
         .claim(&token.token, &token.username, &token.password)
         .map_err(|e| {
             log::error!("error claiming application: {:?}", e);
