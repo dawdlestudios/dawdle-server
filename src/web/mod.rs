@@ -6,14 +6,18 @@ use axum::{
 
 use color_eyre::eyre::Result;
 use std::net::SocketAddr;
-use tower::ServiceExt;
+use tower::{Service, ServiceBuilder, ServiceExt};
 
-use self::errors::{error_404, APIResult};
+use self::{
+    errors::{APIResult, NOT_FOUND},
+    files::create_dir_service,
+};
 
 mod api;
 mod api_admin;
 mod chat;
 mod errors;
+mod files;
 mod middleware;
 mod webdav;
 
@@ -25,7 +29,12 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
         .route("/applications", get(api_admin::get_applications))
         .route("/applications", post(api_admin::approve_application));
 
-    let api_router = Router::new()
+    let www_path = std::path::Path::new(&state.config.base_dir)
+        .join(&state.config.home_dirs)
+        .join("henry")
+        .join("dawdle.space");
+
+    let router = Router::new()
         .nest(
             "/api",
             Router::new()
@@ -39,18 +48,25 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
                 .route("/public_key", post(api::add_public_key))
                 .route("/public_key", delete(api::remove_public_key))
                 .route("/apply", post(api::apply))
-                .route("/claim", post(api::claim)),
+                .route("/claim", post(api::claim))
+                .fallback(|| async { APIError::NotFound.into_response() }),
         )
         .route("/api/webdav", any(webdav::handler))
         .route("/api/webdav/", any(webdav::handler))
         .route("/api/webdav/*rest", any(webdav::handler))
-        .fallback(|| async { APIResult::<Body>::Err(APIError::NotFound) })
+        .fallback_service(create_dir_service(
+            www_path.clone(),
+            www_path.join("404.html"),
+            NOT_FOUND,
+        ))
         .with_state(state.clone());
 
-    // Use a different router based on the hostname.
+    // only construct the router service once
+    let mut router_service = ServiceBuilder::new().service(router.into_service::<Body>());
+    router_service.ready().await?;
+
+    // Use a different service based on the hostname
     let app = |request: Request| async move {
-        // We don't use the Host extractor as it returns X-Forwarded-Host if present,
-        // which can be spoofed by the client.
         let hostname_header = request
             .headers()
             .get("HOST")
@@ -58,71 +74,91 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
             .to_str()
             .map_err(|_| APIError::BadRequest("invalid hostname".to_string()))?;
 
-        let (hostname, port) = if let Some(colon) = hostname_header.find(':') {
-            let (hostname, port) = hostname_header.split_at(colon);
-            (hostname, &port[1..])
-        } else {
-            (hostname_header, "80")
-        };
-
-        let domain = addr::parse_domain_name(hostname)
-            .map_err(|_| APIError::BadRequest("invalid hostname".to_string()))?;
-
-        let is_on_dawdle_space = if cfg!(debug_assertions) {
-            (domain.root() == Some("dawdle.localhost") && domain.suffix() == "localhost")
-                || (domain.root().is_none() && domain.suffix() == "localhost")
-        } else {
-            // this should get redirected by our reverse proxy
-            if port != "80" {
-                return APIResult::Err(APIError::BadRequest("insecure connection".to_string()));
+        let website = match select_service(hostname_header) {
+            Ok(SelectedService::DawdleSpace) => {
+                return APIResult::Ok(router_service.call(request).await.into_response())
             }
-            domain.root() == Some("dawdle.space") && domain.suffix() == "space"
-        };
-
-        let is_api = {
-            if cfg!(debug_assertions) {
-                is_on_dawdle_space && domain.prefix().is_none()
-            } else {
-                // this should get redirected by our reverse proxy
-                if port != "80" {
-                    return APIResult::Err(APIError::BadRequest("insecure connection".to_string()));
-                }
-                domain.root() == Some("dawdle.space")
-                    && domain.prefix().is_none()
-                    && domain.suffix() == "space"
+            Ok(SelectedService::Subdomain(subdomain)) => {
+                let domains = state
+                    .subdomains
+                    .read()
+                    .map_err(|_| APIError::InternalServerError)?;
+                domains.get(&subdomain).cloned()
             }
+            Ok(SelectedService::CustomDomain(hostname)) => {
+                let domains = state
+                    .custom_domains
+                    .read()
+                    .map_err(|_| APIError::InternalServerError)?;
+                domains.get(&hostname).cloned()
+            }
+            Err(err) => return APIResult::Err(err),
         };
 
-        if is_api {
-            APIResult::Ok(api_router.oneshot(request).await.into_response())
-        } else {
-            let website = match is_on_dawdle_space {
-                true => {
-                    let domains = state
-                        .subdomains
-                        .read()
-                        .map_err(|_| APIError::InternalServerError)?;
-                    domains.get(domain.prefix().unwrap()).cloned()
-                }
-                false => {
-                    let domains = state
-                        .custom_domains
-                        .read()
-                        .map_err(|_| APIError::InternalServerError)?;
-                    domains.get(hostname).cloned()
-                }
-            };
+        let Some(website) = website else {
+            return APIResult::Ok(NOT_FOUND.into_response());
+        };
 
-            let Some(website) = website else {
-                return APIResult::Ok(error_404());
-            };
-
-            APIResult::Ok(format!("website: {:?}", website).into_response())
-        }
+        APIResult::Ok(format!("website: {:?}", website).into_response())
     };
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app.into_service()).await?;
 
     Ok(())
+}
+
+enum SelectedService {
+    DawdleSpace,
+    Subdomain(String),
+    CustomDomain(String),
+}
+
+fn select_service(hostname_header: &str) -> APIResult<SelectedService> {
+    let (hostname, port) = if let Some(colon) = hostname_header.find(':') {
+        let (hostname, port) = hostname_header.split_at(colon);
+        (hostname, &port[1..])
+    } else {
+        (hostname_header, "80")
+    };
+
+    let domain = addr::parse_domain_name(hostname)
+        .map_err(|_| APIError::BadRequest("invalid hostname".to_string()))?;
+
+    if !cfg!(debug_assertions) && port != "80" {
+        return APIResult::Err(APIError::BadRequest("insecure connection".to_string()));
+    }
+
+    if is_api(domain) {
+        return Ok(SelectedService::DawdleSpace);
+    }
+
+    Ok(match is_on_dawdle_space(domain) {
+        true => SelectedService::Subdomain(
+            domain
+                .prefix()
+                .map(|s| s.to_string())
+                .ok_or_else(|| APIError::BadRequest("invalid hostname".to_string()))?,
+        ),
+        false => SelectedService::CustomDomain(hostname.to_string()),
+    })
+}
+
+fn is_on_dawdle_space(domain: addr::domain::Name) -> bool {
+    if cfg!(debug_assertions) {
+        (domain.root() == Some("dawdle.localhost") && domain.suffix() == "localhost")
+            || (domain.root().is_none() && domain.suffix() == "localhost")
+    } else {
+        domain.root() == Some("dawdle.space") && domain.suffix() == "space"
+    }
+}
+
+fn is_api(domain: addr::domain::Name) -> bool {
+    if cfg!(debug_assertions) {
+        is_on_dawdle_space(domain) && domain.prefix().is_none()
+    } else {
+        domain.root() == Some("dawdle.space")
+            && domain.prefix().is_none()
+            && domain.suffix() == "space"
+    }
 }

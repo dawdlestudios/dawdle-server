@@ -10,8 +10,6 @@ mod guestbook;
 mod users;
 use guestbook::GuestbookState;
 use users::UserState;
-
-pub use guestbook::*;
 pub use users::*;
 
 pub type DatabaseBackend = okv::backend::rocksdb::RocksDbOptimistic;

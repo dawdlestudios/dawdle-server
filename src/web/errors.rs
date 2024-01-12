@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     http::StatusCode,
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse},
     Json,
 };
 use color_eyre::eyre::Result;
@@ -9,9 +9,8 @@ use serde_json::json;
 
 pub type APIResult<T> = Result<T, APIError>;
 
-pub fn error_404() -> Response {
-    (StatusCode::NOT_FOUND, Html(include_str!("./404.html"))).into_response()
-}
+pub const NOT_FOUND: (StatusCode, Html<&str>) =
+    (StatusCode::NOT_FOUND, Html(include_str!("./404.html")));
 
 pub enum APIError {
     NotFound,
@@ -25,6 +24,12 @@ pub enum APIError {
 impl APIError {
     pub fn custom(status: StatusCode, message: &str) -> Self {
         APIError::Custom(status, message.to_string())
+    }
+    pub fn bad_request() -> Self {
+        APIError::BadRequest("bad request".to_string())
+    }
+    pub fn error(message: &str) -> Self {
+        APIError::Custom(StatusCode::INTERNAL_SERVER_ERROR, message.to_string())
     }
 }
 
