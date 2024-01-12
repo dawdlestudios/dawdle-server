@@ -1,0 +1,47 @@
+/* You can find fonts here: https://bunny.net/fonts/ */
+@import url(https://fonts.bunny.net/css?family=dm-mono:300,500);
+
+html {
+  background: #080f14;
+  color: #fff;
+  font-family: "dm-mono", monospace;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+}
+
+body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem;
+  box-sizing: border-box;
+}
+
+main {
+  width: 100%;
+  max-width: 800px;
+  margin: 2rem;
+}
+
+nav {
+  border-bottom: 1px solid #8be2ff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+code {
+  color: #8be2ff;
+  font-size: 1rem;
+  background: #152734;
+  padding: 0.2rem 0.2rem;
+  border-radius: 0.25rem;
+}
+
+a {
+  color: #8be2ff;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}

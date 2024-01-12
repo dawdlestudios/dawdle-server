@@ -183,8 +183,11 @@ impl Containers {
             .await?;
 
         let command = command.unwrap_or("".to_string());
+        let open_zsh_home = format!("clear; cd /home/{user}; exec zsh");
         let cmd = match command.is_empty() {
-            true => vec!["/bin/bash", "-l", "-i", "-c", "clear; cd ~; exec zsh"],
+            true => {
+                vec!["/bin/bash", "-l", "-i", "-c", &open_zsh_home]
+            }
             false => vec!["/bin/bash", "-c", &command],
         };
 

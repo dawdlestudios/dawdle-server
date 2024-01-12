@@ -43,6 +43,8 @@ pub struct SshSession {
     state: AppState,
     user: Option<SshUser>,
 
+    docker_attach: Option<String>,
+
     command: Option<String>,
     term: String,
     containers: Containers,
@@ -54,6 +56,7 @@ impl SshSession {
         Self {
             state,
             user: None,
+            docker_attach: None,
             command: None,
             term: "xterm".to_string(),
             containers,
@@ -279,7 +282,7 @@ impl russh::server::Handler for SshSession {
             bail!("user not found");
         };
 
-        let (_attach_id, attach_output) = {
+        let (attach_id, attach_output) = {
             let Some(ref mut channel) = self.channels.get_mut(&channel_id) else {
                 log::error!("channel not found");
                 bail!("channel not found");
@@ -301,6 +304,7 @@ impl russh::server::Handler for SshSession {
 
             (attach.id, attach.output)
         };
+        self.docker_attach = Some(attach_id);
 
         // Read bytes from the PTY and send them to the SSH client
         let session_handle = session.handle();
