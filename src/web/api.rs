@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::state::{AppState, Website};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use axum_extra::extract::{
     cookie::{Cookie, SameSite},
@@ -247,5 +247,6 @@ pub async fn claim(
             APIError::InternalServerError
         })?;
 
+    state.set_site(token.username.clone(), Website::User(token.username));
     Ok((Json(json!({ "success": true }))).into_response())
 }

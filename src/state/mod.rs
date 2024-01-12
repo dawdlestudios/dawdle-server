@@ -1,9 +1,7 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::sync::Arc;
 
 use color_eyre::eyre::Result;
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 
 mod guestbook;
@@ -22,8 +20,7 @@ pub struct AppState {
     pub guestbook: GuestbookState,
 
     // pub projects: DB<String, SerdeJson<Project>>,
-    pub subdomains: Arc<RwLock<HashMap<String, Website>>>,
-    pub custom_domains: Arc<RwLock<HashMap<String, Website>>>,
+    pub sites: DashMap<String, Website>,
 
     pub config: Arc<Config>,
     pub chat: Arc<crate::chat::state::ChatState>,
@@ -73,24 +70,14 @@ impl AppState {
         let applications = env.open("applications")?;
         let claim_tokens = env.open("claim_tokens")?;
 
-        let subdomains = Arc::new(RwLock::new(HashMap::new()));
-        let custom_domains = Arc::new(RwLock::new(HashMap::new()));
-
-        {
-            subdomains
-                .write()
-                .expect("failed to lock subdomains")
-                .extend(
-                    users
-                        .iter()?
-                        .map(|user| {
-                            user.map(|(username, _): (String, _)| {
-                                (username.clone(), Website::User(username))
-                            })
-                        })
-                        .collect::<Result<HashMap<_, _>, _>>()?,
-                );
-        }
+        let sites = {
+            let domains = users.iter()?.collect::<Result<Vec<(String, User)>, _>>()?;
+            DashMap::from_iter(
+                domains
+                    .into_iter()
+                    .map(|(k, _)| (k.clone(), Website::User(k))),
+            )
+        };
 
         Ok(Self {
             user: UserState {
@@ -100,10 +87,15 @@ impl AppState {
                 claim_tokens,
             },
             guestbook: GuestbookState { guestbook },
-            subdomains,
-            custom_domains,
+            sites,
             config: Arc::new(Config::default()),
             chat: Arc::new(crate::chat::state::ChatState::new()),
         })
+    }
+
+    // only needs to be called manually if e.g. a new user is added or a site is created
+    // otherwise, it will be called automatically when the server starts
+    pub fn set_site(&self, subdomain: String, website: Website) {
+        self.sites.insert(subdomain, website);
     }
 }

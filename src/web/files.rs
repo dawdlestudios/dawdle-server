@@ -17,6 +17,13 @@ use percent_encoding::percent_decode;
 
 // based on https://github.com/tower-rs/tower-http
 // License: MIT - Copyright (c) 2019-2021 Tower Contributors
+//
+// Changes:
+// - Only extracted the parts needed for this project
+// - Added fallback file
+// - Added fallback response if fallback file doesn't exist
+// - Removed / redirects
+// - Serve .html files if no file extension is given as fallback
 
 pub fn create_dir_service(
     path: PathBuf,
@@ -28,8 +35,6 @@ pub fn create_dir_service(
         let base_path = path.clone();
         let fallback_file = fallback_file.clone();
         let fallback = fallback.clone();
-
-        log::info!("fallback file: {:?}", fallback_file);
 
         async move {
             if req.method() != Method::GET && req.method() != Method::HEAD {
@@ -74,7 +79,6 @@ pub fn create_dir_service(
             } else {
                 path_to_file
             };
-            log::info!("path: {:?}", path_to_file);
 
             let (mut file, mime) = match open_file(path_to_file).await {
                 Ok(Some(file)) => file,
@@ -113,8 +117,6 @@ pub fn create_dir_service(
                     }
                 }
             }
-
-            log::info!("file: {:?}", meta);
 
             // we can actually return the file now
             Ok(build_response(FileOutput {
@@ -271,7 +273,6 @@ async fn open_file(
             if err.kind() == std::io::ErrorKind::NotFound {
                 // try .html if it's not at the end of the file already
                 if !path_to_file.ends_with(".html") {
-                    log::info!("trying {:?}", path_to_file.join(".html"));
                     if let Ok(file) =
                         tokio::fs::File::open(path_to_file.with_extension("html")).await
                     {

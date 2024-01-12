@@ -1,4 +1,8 @@
-use crate::{state::AppState, web::errors::APIError};
+use crate::{
+    state::{AppState, Website},
+    utils::is_valid_username,
+    web::errors::APIError,
+};
 use axum::{
     body::Body, extract::Request, handler::HandlerWithoutStateExt, response::IntoResponse,
     routing::*, Router,
@@ -74,32 +78,36 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
             .to_str()
             .map_err(|_| APIError::BadRequest("invalid hostname".to_string()))?;
 
-        let website = match select_service(hostname_header) {
+        let site = match select_service(hostname_header) {
             Ok(SelectedService::DawdleSpace) => {
                 return APIResult::Ok(router_service.call(request).await.into_response())
             }
-            Ok(SelectedService::Subdomain(subdomain)) => {
-                let domains = state
-                    .subdomains
-                    .read()
-                    .map_err(|_| APIError::InternalServerError)?;
-                domains.get(&subdomain).cloned()
-            }
-            Ok(SelectedService::CustomDomain(hostname)) => {
-                let domains = state
-                    .custom_domains
-                    .read()
-                    .map_err(|_| APIError::InternalServerError)?;
-                domains.get(&hostname).cloned()
-            }
+            Ok(SelectedService::Subdomain(subdomain)) => state.sites.get(&subdomain),
+            Ok(SelectedService::CustomDomain(hostname)) => state.sites.get(&hostname),
             Err(err) => return APIResult::Err(err),
         };
 
-        let Some(website) = website else {
+        let Some(site) = site else {
             return APIResult::Ok(NOT_FOUND.into_response());
         };
 
-        APIResult::Ok(format!("website: {:?}", website).into_response())
+        match site.value() {
+            Website::User(username) => {
+                if !is_valid_username(username) {
+                    return APIResult::Ok(NOT_FOUND.into_response());
+                }
+
+                let path = std::path::Path::new(&state.config.base_dir)
+                    .join(&state.config.home_dirs)
+                    .join(username.to_ascii_lowercase())
+                    .join("public");
+
+                let service = create_dir_service(path.clone(), path.join("404.html"), NOT_FOUND);
+                let res = service.oneshot(request).await;
+                APIResult::Ok(res.into_response())
+            }
+            _ => APIResult::Ok(NOT_FOUND.into_response()),
+        }
     };
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -108,6 +116,7 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
 enum SelectedService {
     DawdleSpace,
     Subdomain(String),
@@ -134,12 +143,13 @@ fn select_service(hostname_header: &str) -> APIResult<SelectedService> {
     }
 
     Ok(match is_on_dawdle_space(domain) {
-        true => SelectedService::Subdomain(
-            domain
+        true => {
+            let subdomain = domain
                 .prefix()
                 .map(|s| s.to_string())
-                .ok_or_else(|| APIError::BadRequest("invalid hostname".to_string()))?,
-        ),
+                .ok_or_else(|| APIError::BadRequest("invalid hostname".to_string()))?;
+            SelectedService::Subdomain(subdomain)
+        }
         false => SelectedService::CustomDomain(hostname.to_string()),
     })
 }
