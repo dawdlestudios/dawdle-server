@@ -5,7 +5,12 @@ pub const DOCKER_CONTAINER_PREFIX: &str = "dawdle-home-";
 #[cfg(target_os = "darwin")]
 pub const DOCKER_SOCKET_MACOS: &str = "unix:///Users/henry/.colima/default/docker.sock";
 
-pub const HOME_SUBFOLDER: &str = "./home";
+pub const FILES_FOLDER: &str = "./.files";
+pub const KEYS_FOLDER: &str = "./.keys";
+pub const DB_FOLDER: &str = "./.db";
+
+pub const FILES_HOME: &str = "./home";
+pub const FILES_DEFAULT_HOME: &str = "./default-home";
 
 use std::sync::Arc;
 
@@ -20,16 +25,8 @@ pub struct Config {
     pub ssh_interface: String,
     pub www_port: u16,
     pub www_interface: String,
-    pub db_path: String,
-    pub files_path: String,
-    pub keys_path: String,
-    // "ssh_port": 2222,
-    // "ssh_interface": "127.0.0.1",
-    // "www_port": 8080,
-    // "www_interface": "127.0.0.1",
-    // "db_path": "./.db",
-    // "files_path": "./.files",
-    // "keys_path": "./.keys"
+
+    pub initial_user: Option<(String, String)>,
 }
 
 fn default_base_dir() -> String {

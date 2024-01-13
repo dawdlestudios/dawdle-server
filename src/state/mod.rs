@@ -65,6 +65,7 @@ impl AppState {
 
         Ok(Self {
             user: UserState {
+                config: config.clone(),
                 users,
                 sessions,
                 applications,

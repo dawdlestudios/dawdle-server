@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use argon2::PasswordVerifier;
 use color_eyre::eyre::{bail, eyre, Result};
 use cuid2::cuid;
@@ -14,6 +16,7 @@ pub type ApplicationID = String;
 
 #[derive(Clone)]
 pub struct UserState {
+    pub config: Arc<crate::config::Config>,
     pub sessions: DB<String, SerdeJson<Session>>,
     pub users: DB<String, SerdeJson<User>>,
     pub applications: DB<String, SerdeJson<Application>>,
@@ -31,7 +34,6 @@ pub struct Session {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub password_hash: String,
-    pub ssh_allow_password: bool,
     pub public_keys: Vec<(PublicKeyName, PublicKeyData)>,
     pub role: Option<String>,
 }
@@ -102,6 +104,10 @@ impl UserState {
             .get(&application_id)?
             .ok_or_else(|| eyre!("application not found"))?;
 
+        if !application.approved {
+            return Err(eyre!("application not approved"));
+        }
+
         if application.claim_token != Some(token.to_string()) {
             return Err(eyre!("invalid claim token"));
         }
@@ -112,6 +118,7 @@ impl UserState {
 
         let application = Application {
             claimed: true,
+            claim_token: None,
             ..application
         };
 
@@ -119,13 +126,43 @@ impl UserState {
             &application.username,
             &User {
                 password_hash: crate::utils::hash_pw(pw).map_err(|_| eyre!("failed to hash pw"))?,
-                ssh_allow_password: false,
                 public_keys: vec![],
                 role: None,
             },
         )?;
-
         self.applications.set(&application_id, &application)?;
+        self.claim_tokens.delete(token)?;
+
+        self.create_home(&application.username)?;
+
+        Ok(())
+    }
+
+    fn create_home(&self, username: &str) -> Result<()> {
+        // copy the default home folder to the user's new home folder
+        let default_home = std::path::Path::new(&self.config.base_dir)
+            .join(crate::config::FILES_FOLDER)
+            .join(crate::config::FILES_DEFAULT_HOME);
+
+        let user_home = std::path::Path::new(&self.config.base_dir)
+            .join(crate::config::FILES_FOLDER)
+            .join(crate::config::FILES_HOME)
+            .join(&username);
+
+        if !user_home.exists() {
+            std::fs::create_dir_all(&user_home)?;
+        }
+
+        for entry in std::fs::read_dir(default_home)? {
+            let entry = entry?;
+            let path = entry.path();
+            let filename = path.file_name().unwrap();
+            let dest = user_home.join(filename);
+            if !dest.exists() {
+                std::fs::copy(path, dest)?;
+            }
+        }
+
         Ok(())
     }
 }

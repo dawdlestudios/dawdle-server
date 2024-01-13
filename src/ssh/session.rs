@@ -124,22 +124,15 @@ impl russh::server::Handler for SshSession {
 
     async fn auth_password(
         mut self,
-        user: &str,
-        password: &str,
+        _user: &str,
+        _password: &str,
     ) -> Result<(Self, Auth), Self::Error> {
-        let user = self.get_user(user).await?;
-        if !user.user.ssh_allow_password {
-            return Ok((
-                self,
-                Auth::Reject {
-                    proceed_with_methods: None,
-                },
-            ));
-        }
-
-        let hash = argon2::PasswordHash::new(&user.user.password_hash)?;
-        argon2::Argon2::default().verify_password(password.as_bytes(), &hash)?;
-        Ok((self, Auth::Accept))
+        Ok((
+            self,
+            Auth::Reject {
+                proceed_with_methods: None,
+            },
+        ))
     }
 
     /// just check if the user has the offered public key
@@ -170,10 +163,10 @@ impl russh::server::Handler for SshSession {
     /// Signature has been verified, now we need to check if the user is allowed to login
     async fn auth_publickey(
         mut self,
-        _user: &str,
+        user: &str,
         _public_key: &russh_keys::key::PublicKey,
     ) -> Result<(Self, Auth), Self::Error> {
-        // let user = self.get_user(user).await?;
+        let _ = self.get_user(user).await?;
         Ok((self, Auth::Accept))
     }
 

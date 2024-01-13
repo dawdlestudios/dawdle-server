@@ -3,7 +3,8 @@
     "ssh_interface": "127.0.0.1",
     "www_port": 8080,
     "www_interface": "127.0.0.1",
-    "db_path": "./.db",
-    "files_path": "./.files",
-    "keys_path": "./.keys"
+    "initial_user": [
+        "henry",
+        "password"
+    ]
 }

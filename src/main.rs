@@ -10,10 +10,8 @@ use color_eyre::eyre;
 use containers::Containers;
 use log::{info, LevelFilter};
 use ssh::SshServer;
-use std::{
-    net::{IpAddr, SocketAddr},
-    str::FromStr,
-};
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
 use tokio::select;
 
 #[tokio::main]
@@ -22,22 +20,20 @@ async fn main() -> eyre::Result<()> {
     env_logger::builder().filter_level(LevelFilter::Info).init();
 
     let config = config::Config::load()?;
+
     let env = state::create_env()?;
     let state = state::AppState::new(env, config)?;
 
     let containers = Containers::new()?;
     containers.init().await?;
 
-    if cfg!(debug_assertions) {
-        log::warn!("running in debug mode! this is not secure!");
-
+    if let Some((username, password)) = &state.config.initial_user {
         let _ = state.user.create(
-            "henry",
+            &username,
             crate::state::User {
                 role: Some("admin".to_string()),
-                public_keys: vec![("main".to_string(), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDfx0dXF4OM2HiE550bb7VnN/aKVTK+bZud1EVB4WYRX henry@tempora".to_string())],
-                ssh_allow_password: true,
-                password_hash: crate::utils::hash_pw("password")?,
+                public_keys: vec![],
+                password_hash: crate::utils::hash_pw(password)?,
             },
         );
     }

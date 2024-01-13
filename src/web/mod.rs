@@ -34,9 +34,12 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
         .route("/applications", post(api_admin::approve_application));
 
     let www_path = std::path::Path::new(&state.config.base_dir)
-        .join(crate::config::HOME_SUBFOLDER)
+        .join(crate::config::FILES_FOLDER)
+        .join(crate::config::FILES_HOME)
         .join("./henry")
         .join("./dawdle.space");
+
+    log::info!("serving files from {}", www_path.display());
 
     let router = Router::new()
         .nest(
@@ -80,7 +83,7 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
 
         let site = match select_service(hostname_header) {
             Ok(SelectedService::DawdleSpace) => {
-                return APIResult::Ok(router_service.call(request).await.into_response())
+                return APIResult::Ok(router_service.call(request).await.into_response());
             }
             Ok(SelectedService::Subdomain(subdomain)) => state.sites.get(&subdomain),
             Ok(SelectedService::CustomDomain(hostname)) => state.sites.get(&hostname),
@@ -98,7 +101,8 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
                 }
 
                 let path = std::path::Path::new(&state.config.base_dir)
-                    .join(crate::config::HOME_SUBFOLDER)
+                    .join(crate::config::FILES_FOLDER)
+                    .join(crate::config::FILES_HOME)
                     .join(username.to_ascii_lowercase())
                     .join("./public");
 
