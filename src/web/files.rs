@@ -1,10 +1,11 @@
+use std::borrow::Cow;
 use std::convert::Infallible;
 use std::io::SeekFrom;
 use std::ops::RangeInclusive;
 use std::path::{Component, Path, PathBuf};
 
 use super::errors::APIError;
-use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderValue, Method, StatusCode, Uri};
 use axum::response::Response;
 use axum::{body::Body, extract::Request, response::IntoResponse};
 use http_range_header::RangeUnsatisfiableError;
@@ -42,6 +43,17 @@ pub fn create_dir_service(
                     APIError::custom(StatusCode::METHOD_NOT_ALLOWED, "Method not allowed")
                         .into_response(),
                 );
+            }
+
+            // 301 redirect if the path ends with a slash
+            if let Some(new_uri) = normalize_trailing_slash(req.uri()) {
+                if new_uri.path() != req.uri().path() {
+                    return Ok(Response::builder()
+                        .status(StatusCode::MOVED_PERMANENTLY)
+                        .header(header::LOCATION, new_uri.to_string())
+                        .body(Body::empty())
+                        .unwrap());
+                }
             }
 
             let path_to_file = match build_and_validate_path(&base_path, req.uri().path()) {
@@ -330,4 +342,35 @@ fn build_and_validate_path(base_path: &std::path::Path, requested_path: &str) ->
         }
     }
     Some(path_to_file)
+}
+
+fn normalize_trailing_slash(uri: &Uri) -> Option<Uri> {
+    if !uri.path().ends_with('/') && !uri.path().starts_with("//") {
+        return None;
+    }
+
+    let new_path = format!("/{}", uri.path().trim_matches('/'));
+
+    let mut parts = uri.clone().into_parts();
+
+    let new_path_and_query = if let Some(path_and_query) = &parts.path_and_query {
+        let new_path_and_query = if let Some(query) = path_and_query.query() {
+            Cow::Owned(format!("{}?{}", new_path, query))
+        } else {
+            new_path.into()
+        }
+        .parse()
+        .unwrap();
+
+        Some(new_path_and_query)
+    } else {
+        None
+    };
+
+    parts.path_and_query = new_path_and_query;
+    if let Ok(new_uri) = Uri::from_parts(parts) {
+        Some(new_uri)
+    } else {
+        None
+    }
 }
