@@ -250,3 +250,29 @@ pub async fn claim(
     state.set_site(token.username.clone(), Website::User(token.username));
     Ok((Json(json!({ "success": true }))).into_response())
 }
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ChangePasswordRequest {
+    pub old_password: String,
+    pub new_password: String,
+}
+
+pub async fn change_password(
+    session: RequiredSession,
+    State(state): State<AppState>,
+    body: Json<ChangePasswordRequest>,
+) -> APIResult<impl IntoResponse> {
+    let password = body.0;
+
+    state
+        .user
+        .verify_password(session.username(), &password.old_password)
+        .map_err(|_| APIError::InternalServerError)?;
+
+    state
+        .user
+        .change_password(session.username(), &password.new_password)
+        .map_err(|_| APIError::InternalServerError)?;
+
+    Ok((Json(json!({ "success": true }))).into_response())
+}

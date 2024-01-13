@@ -229,6 +229,15 @@ impl UserState {
         tx.commit()?;
         Ok(())
     }
+
+    pub fn change_password(&self, username: &str, password: &str) -> Result<()> {
+        let tx = self.users.transaction()?;
+        let mut user: User = tx.get(username)?.ok_or_else(|| eyre!("user not found"))?;
+        user.password_hash = crate::utils::hash_pw(password)?;
+        tx.set(username, &user)?;
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 // Sessions

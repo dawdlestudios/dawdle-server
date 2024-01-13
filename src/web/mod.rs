@@ -51,6 +51,7 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
                 .route("/guestbook", get(api::get_guestbook))
                 .route("/guestbook", post(api::add_guestbook_entry))
                 .route("/me", get(api::get_me))
+                .route("/password", post(api::change_password))
                 .route("/public_key", post(api::add_public_key))
                 .route("/public_key", delete(api::remove_public_key))
                 .route("/apply", post(api::apply))
