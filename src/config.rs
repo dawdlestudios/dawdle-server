@@ -1,16 +1,16 @@
-pub const DOCKER_IMAGE: &str = "dawdle-home";
+pub const DOCKER_IMAGE: &str = "ghcr.io/dawdlestudios/container";
 pub const DOCKER_TAG: &str = "latest";
 pub const DOCKER_CONTAINER_PREFIX: &str = "dawdle-home-";
 
 #[cfg(target_os = "darwin")]
 pub const DOCKER_SOCKET_MACOS: &str = "unix:///Users/henry/.colima/default/docker.sock";
 
-pub const FILES_FOLDER: &str = "./.files";
-pub const KEYS_FOLDER: &str = "./.keys";
-pub const DB_FOLDER: &str = "./.db";
+pub const FILES_FOLDER: &str = ".files";
+// pub const KEYS_FOLDER: &str = ".keys";
+pub const DB_FOLDER: &str = ".db";
 
-pub const FILES_HOME: &str = "./home";
-pub const FILES_DEFAULT_HOME: &str = "./default-home";
+pub const FILES_HOME: &str = "home/";
+pub const FILES_DEFAULT_HOME: &str = "default-home/";
 
 use std::sync::Arc;
 
@@ -52,7 +52,6 @@ impl Config {
         let config: Config = serde_json::from_str(&config)?;
 
         log::info!("loaded config from {}", config_path);
-
         Ok(Arc::new(config))
     }
 }

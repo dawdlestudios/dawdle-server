@@ -10,6 +10,23 @@ pub fn is_valid_username(username: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 
+pub fn is_valid_project_path(path: &str) -> bool {
+    // check for leading slash, multiple slashes, and ..
+    !path.is_empty()
+        && path.len() < 64
+        && !path.starts_with('/')
+        && !path.contains("//")
+        && !path.contains("..")
+        && path.chars().all(|c| {
+            c.is_ascii_lowercase()
+                || c.is_ascii_digit()
+                || c == '/'
+                || c == '.'
+                || c == '-'
+                || c == '_'
+        })
+}
+
 pub struct RingBuffer<T> {
     buffer: Vec<T>,
     capacity: usize,

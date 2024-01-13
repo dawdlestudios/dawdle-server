@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use argon2::PasswordVerifier;
 use bollard::container::LogOutput;
 use color_eyre::eyre::{self, bail, Result};
 use dashmap::DashMap;
@@ -34,7 +33,7 @@ pub struct SshChannel {
 #[derive(Debug)]
 struct SshUser {
     username: String,
-    user: User,
+    _user: User,
     keys: Vec<russh_keys::key::PublicKey>,
 }
 
@@ -104,7 +103,7 @@ impl SshSession {
 
         let user = SshUser {
             username: username.to_string(),
-            user: user.clone(),
+            _user: user.clone(),
             keys,
         };
 

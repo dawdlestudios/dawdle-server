@@ -1,6 +1,6 @@
 use crate::{
     state::{AppState, Website},
-    utils::is_valid_username,
+    utils::{is_valid_project_path, is_valid_username},
     web::errors::APIError,
 };
 use axum::{
@@ -36,10 +36,9 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
     let www_path = std::path::Path::new(&state.config.base_dir)
         .join(crate::config::FILES_FOLDER)
         .join(crate::config::FILES_HOME)
-        .join("./henry")
-        .join("./dawdle.space");
-
-    log::info!("serving files from {}", www_path.display());
+        .join("henry")
+        .join("sites")
+        .join("dawdle.space");
 
     let router = Router::new()
         .nest(
@@ -63,7 +62,7 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
         .route("/api/webdav/*rest", any(webdav::handler))
         .fallback_service(create_dir_service(
             www_path.clone(),
-            www_path.join("./404.html"),
+            www_path.join("404.html"),
             NOT_FOUND,
         ))
         .with_state(state.clone());
@@ -104,13 +103,27 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
                     .join(crate::config::FILES_FOLDER)
                     .join(crate::config::FILES_HOME)
                     .join(username.to_ascii_lowercase())
-                    .join("./public");
+                    .join("public");
 
                 let service = create_dir_service(path.clone(), path.join("404.html"), NOT_FOUND);
                 let res = service.oneshot(request).await;
                 APIResult::Ok(res.into_response())
             }
-            _ => APIResult::Ok(NOT_FOUND.into_response()),
+            Website::Site(username, path) => {
+                if !is_valid_username(username) || !is_valid_project_path(path) {
+                    return APIResult::Ok(NOT_FOUND.into_response());
+                }
+
+                let path = std::path::Path::new(&state.config.base_dir)
+                    .join(crate::config::FILES_FOLDER)
+                    .join(crate::config::FILES_HOME)
+                    .join(username.to_ascii_lowercase())
+                    .join(path);
+
+                let service = create_dir_service(path.clone(), path.join("404.html"), NOT_FOUND);
+                let res = service.oneshot(request).await;
+                APIResult::Ok(res.into_response())
+            }
         }
     };
 

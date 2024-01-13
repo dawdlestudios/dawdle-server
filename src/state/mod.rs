@@ -10,7 +10,7 @@ use guestbook::GuestbookState;
 use users::UserState;
 pub use users::*;
 
-use crate::config::Config;
+use crate::config::{Config, DB_FOLDER};
 
 pub type DatabaseBackend = okv::backend::rocksdb::RocksDbOptimistic;
 pub type Env = okv::Env<DatabaseBackend>;
@@ -35,14 +35,17 @@ pub struct AppState {
 //     name: String,
 // }
 
+type Username = String;
+type RelativeProjectPath = String;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Website {
-    User(String),
-    Project(String, String),
+    User(Username), // always at ~/public
+    Site(Username, RelativeProjectPath),
 }
 
 pub fn create_env() -> Result<Env> {
-    let env = Env::new(DatabaseBackend::new("./.db")?);
+    let env = Env::new(DatabaseBackend::new(DB_FOLDER)?);
     Ok(env)
 }
 
@@ -62,6 +65,11 @@ impl AppState {
                     .map(|(k, _)| (k.clone(), Website::User(k))),
             )
         };
+
+        sites.insert(
+            "lastfm-iceberg".to_string(),
+            Website::Site("henry".to_string(), "sites/lastfm-iceberg".to_string()),
+        );
 
         Ok(Self {
             user: UserState {

@@ -87,7 +87,7 @@ pub fn create_dir_service(
             }
 
             let path_to_file = if is_dir(&path_to_file).await {
-                path_to_file.join("./index.html")
+                path_to_file.join("index.html")
             } else {
                 path_to_file
             };
@@ -108,7 +108,7 @@ pub fn create_dir_service(
                 Err(_) => return Ok(APIError::bad_request().into_response()),
             };
 
-            if !meta.is_file() {
+            if !meta.is_file() || meta.is_symlink() {
                 return Ok(fallback.into_response());
             }
 
