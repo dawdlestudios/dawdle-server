@@ -34,9 +34,9 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
         .route("/applications", post(api_admin::approve_application));
 
     let www_path = std::path::Path::new(&state.config.base_dir)
-        .join(&state.config.home_dirs)
-        .join("henry")
-        .join("dawdle.space");
+        .join(crate::config::HOME_SUBFOLDER)
+        .join("./henry")
+        .join("./dawdle.space");
 
     let router = Router::new()
         .nest(
@@ -60,7 +60,7 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
         .route("/api/webdav/*rest", any(webdav::handler))
         .fallback_service(create_dir_service(
             www_path.clone(),
-            www_path.join("404.html"),
+            www_path.join("./404.html"),
             NOT_FOUND,
         ))
         .with_state(state.clone());
@@ -98,9 +98,9 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
                 }
 
                 let path = std::path::Path::new(&state.config.base_dir)
-                    .join(&state.config.home_dirs)
+                    .join(crate::config::HOME_SUBFOLDER)
                     .join(username.to_ascii_lowercase())
-                    .join("public");
+                    .join("./public");
 
                 let service = create_dir_service(path.clone(), path.join("404.html"), NOT_FOUND);
                 let res = service.oneshot(request).await;

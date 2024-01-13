@@ -31,7 +31,7 @@ pub async fn handler(
     }
 
     let path = std::path::Path::new(&state.config.base_dir)
-        .join(&state.config.home_dirs)
+        .join(crate::config::HOME_SUBFOLDER)
         .join(username);
 
     let dav_server = DavHandler::builder()

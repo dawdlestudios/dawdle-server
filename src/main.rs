@@ -10,7 +10,10 @@ use color_eyre::eyre;
 use containers::Containers;
 use log::{info, LevelFilter};
 use ssh::SshServer;
-use std::net::SocketAddr;
+use std::{
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
+};
 use tokio::select;
 
 #[tokio::main]
@@ -18,8 +21,9 @@ async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     env_logger::builder().filter_level(LevelFilter::Info).init();
 
+    let config = config::Config::load()?;
     let env = state::create_env()?;
-    let state = state::AppState::new(env)?;
+    let state = state::AppState::new(env, config)?;
 
     let containers = Containers::new()?;
     containers.init().await?;
@@ -38,10 +42,18 @@ async fn main() -> eyre::Result<()> {
         );
     }
 
-    let api_addr: SocketAddr = "127.0.0.1:8008".parse()?;
+    let api_addr = SocketAddr::new(
+        IpAddr::from_str(&state.config.www_interface)?,
+        state.config.www_port,
+    );
+
     let api_server = web::run(state.clone(), api_addr);
 
-    let ssh_addr: SocketAddr = "0.0.0.0:2222".parse()?;
+    let ssh_addr = SocketAddr::new(
+        IpAddr::from_str(&state.config.ssh_interface)?,
+        state.config.ssh_port,
+    );
+
     let ssh_server = SshServer::new(containers, state);
     let ssh_server = ssh_server.run(ssh_addr);
 
