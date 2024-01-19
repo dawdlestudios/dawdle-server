@@ -95,7 +95,7 @@ pub fn hash_pw(password: &str) -> color_eyre::eyre::Result<String> {
 }
 
 pub fn valid_public_key(key: &str) -> bool {
-    let Ok(k) = ssh_key::PublicKey::from_openssh(&key) else {
+    let Ok(k) = ssh_key::PublicKey::from_openssh(key) else {
         return false;
     };
 

@@ -1,33 +1,50 @@
-use std::sync::Arc;
-
-use bollard::container::LogOutput;
 use color_eyre::eyre::{self, bail, Result};
+use dashmap::mapref::one::RefMut;
 use dashmap::DashMap;
 use futures::TryStreamExt;
-use log::{debug, error, info};
+use log::{debug, info};
 use russh_keys::key::parse_public_key;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
-use super::sftp::SftpSession;
-use crate::containers::{AttachInput, Containers};
+use crate::containers::{AttachInput, Containers, Pty};
 use crate::state::{AppState, User};
 use async_trait::async_trait;
 use russh::server::{Auth, Msg, Session};
 use russh::{Channel, ChannelId, CryptoVec};
 
-struct Pty {
-    id: String,
-    input: Mutex<AttachInput>,
+#[derive(Default)]
+struct UserContainer {
+    _container_id: Option<String>,
+    exec_id: Option<String>,
+    stream: Option<Mutex<AttachInput>>,
 }
 
-pub struct SshChannel {
-    handle: Channel<Msg>,
+impl UserContainer {
+    async fn write_all(&mut self, data: &[u8]) -> Result<()> {
+        let Some(stream) = &self.stream else {
+            bail!("stream not found");
+        };
 
+        let mut stream = stream.lock().await;
+        stream.0.write_all(data).await?;
+        Ok(())
+    }
+
+    fn exec_id(&self) -> Result<&str> {
+        let Some(id) = &self.exec_id else {
+            bail!("exec_id not found");
+        };
+
+        Ok(id)
+    }
+}
+
+#[derive(Default)]
+pub struct SshChannel {
     pty: Option<Pty>,
-    pty_term: Option<String>,
-    pty_modes: Option<Vec<(russh::Pty, u32)>>,
-    pty_size: Option<(u16, u16)>,
+    env: Option<Vec<(String, String)>>,
+    shell: UserContainer,
 }
 
 #[derive(Debug)]
@@ -38,33 +55,33 @@ struct SshUser {
 }
 
 pub struct SshSession {
-    /// The command to run, if any.
     state: AppState,
-    user: Option<SshUser>,
-
-    docker_attach: Option<String>,
-
-    command: Option<String>,
-    term: String,
     containers: Containers,
-    channels: Arc<DashMap<ChannelId, SshChannel>>,
+    user: Option<SshUser>,
+    channels: DashMap<ChannelId, SshChannel>,
 }
 
 impl SshSession {
     pub fn new(containers: Containers, state: AppState) -> Self {
         Self {
             state,
-            user: None,
-            docker_attach: None,
-            command: None,
-            term: "xterm".to_string(),
             containers,
-            channels: Arc::new(DashMap::new()),
+            user: None,
+            channels: DashMap::new(),
         }
     }
 
-    pub async fn remove_channel(&mut self, channel_id: ChannelId) -> Option<SshChannel> {
-        Some(self.channels.remove(&channel_id)?.1)
+    fn user(&mut self) -> Result<&SshUser> {
+        match self.user {
+            Some(ref user) => Ok(user),
+            None => bail!("user not found"),
+        }
+    }
+
+    fn channel(&self, channel_id: ChannelId) -> Result<RefMut<'_, ChannelId, SshChannel>> {
+        self.channels
+            .get_mut(&channel_id)
+            .ok_or_else(|| eyre::eyre!("channel not found"))
     }
 
     async fn get_user(&mut self, username: &str) -> Result<&SshUser> {
@@ -121,19 +138,6 @@ impl SshSession {
 impl russh::server::Handler for SshSession {
     type Error = eyre::Error;
 
-    async fn auth_password(
-        mut self,
-        _user: &str,
-        _password: &str,
-    ) -> Result<(Self, Auth), Self::Error> {
-        Ok((
-            self,
-            Auth::Reject {
-                proceed_with_methods: None,
-            },
-        ))
-    }
-
     /// just check if the user has the offered public key
     async fn auth_publickey_offered(
         mut self,
@@ -143,19 +147,14 @@ impl russh::server::Handler for SshSession {
         debug!("offered credentials: {}, {:?}", user, public_key);
         let user = self.get_user(user).await?;
 
-        for key in user.keys.iter() {
-            if key == public_key {
-                info!("key accepted");
-                return Ok((self, Auth::Accept));
-            }
-        }
-
-        Ok((
-            self,
-            Auth::Reject {
+        let res = match user.keys.iter().any(|k| k == public_key) {
+            true => Auth::Accept,
+            false => Auth::Reject {
                 proceed_with_methods: None,
             },
-        ))
+        };
+
+        Ok((self, res))
     }
 
     /// actually authenticate the user
@@ -176,24 +175,10 @@ impl russh::server::Handler for SshSession {
         session: Session,
     ) -> Result<(Self, bool, Session), Self::Error> {
         info!("channel_open_session");
-
-        {
-            let id = channel.id();
-            let client = SshChannel {
-                handle: channel,
-                pty: None,
-                pty_size: None,
-                pty_modes: None,
-                pty_term: None,
-            };
-
-            self.channels.insert(id, client);
-        }
-
+        self.channels.insert(channel.id(), SshChannel::default());
         Ok((self, true, session))
     }
 
-    #[allow(unused_variables)]
     async fn env_request(
         self,
         channel: ChannelId,
@@ -201,67 +186,101 @@ impl russh::server::Handler for SshSession {
         variable_value: &str,
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
+        self.channels.alter(&channel, |_, mut v| {
+            v.env
+                .get_or_insert_with(Vec::new)
+                .push((variable_name.to_string(), variable_value.to_string()));
+            v
+        });
         Ok((self, session))
     }
 
-    #[allow(unused_variables, clippy::too_many_arguments)]
     async fn pty_request(
         mut self,
         channel: ChannelId,
         term: &str,
         col_width: u32,
         row_height: u32,
-        pix_width: u32,
-        pix_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
         modes: &[(russh::Pty, u32)],
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
-        // TODO: handle different pty types
-        self.term = term.to_string();
-        self.channels.alter(&channel, |k, mut v| {
-            v.pty_size = Some((col_width as u16, row_height as u16));
-            v.pty_modes = Some(modes.to_vec());
-            v.pty_term = Some(term.to_string());
+        log::debug!("pty_request: {:?}", modes);
+        self.channels.alter(&channel, |_k, mut v| {
+            v.pty = Some(Pty {
+                pty_term: Some(term.to_string()),
+                pty_modes: Some(modes.to_vec()),
+                pty_size: Some((col_width as u16, row_height as u16)),
+            });
             v
         });
         Ok((self, session))
     }
 
-    async fn subsystem_request(
-        mut self,
-        channel_id: ChannelId,
-        name: &str,
-        mut session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
-        if name == "sftp" {
-            let Some(channel) = self.remove_channel(channel_id).await else {
-                bail!("channel not found");
-            };
-            let sftp = SftpSession::default();
-            session.channel_success(channel_id);
-            russh_sftp::server::run(channel.handle.into_stream(), sftp).await;
-        } else {
-            session.channel_failure(channel_id);
-        }
-        Ok((self, session))
-    }
-
     async fn exec_request(
         mut self,
-        channel: ChannelId,
+        channel_id: ChannelId,
         data: &[u8],
-        session: Session,
+        mut session: Session,
     ) -> Result<(Self, Session), Self::Error> {
-        let Ok(command) = String::from_utf8(data.to_vec()) else {
-            bail!("command is not valid utf8");
-        };
+        log::debug!("exec_request");
+        let command = String::from_utf8(data.to_vec())?;
 
-        // we disable echo here to prevent ssh from echoing bootstrap commands
-        // TODO: this is a hack, we should probably do something else
-        self.command = Some("stty -echo\n".to_string() + &command);
-        // self.command = Some("".to_string() + &command);
+        let username = self.user()?.username.clone();
+        let attach = self
+            .containers
+            .attach(
+                &username,
+                Some(command),
+                self.channel(channel_id)?.pty.clone(),
+            )
+            .await?;
 
-        let (self, session) = self.shell_request(channel, session).await?;
+        self.channels.alter(&channel_id, |_, mut v| {
+            v.shell = UserContainer {
+                _container_id: Some(attach.container_id.clone()),
+                exec_id: Some(attach.id.clone()),
+                stream: Some(Mutex::new(attach.input)),
+            };
+            v
+        });
+
+        let attach_output = attach.output;
+        let session_handle = session.handle();
+
+        tokio::spawn(async move {
+            info!("attach_output reader spawned");
+
+            let res = attach_output
+                .0
+                .into_stream()
+                .try_for_each(|output| async {
+                    session_handle
+                        .data(channel_id, CryptoVec::from_slice(&output.into_bytes()))
+                        .await
+                        .map_err(|e| {
+                            println!("data failed: {:?}", String::from_utf8_lossy(e.as_ref()))
+                        })
+                        .unwrap();
+                    Ok(())
+                })
+                .await;
+
+            info!("attach_output reader done: {:?}", res);
+            if let Err(e) = res {
+                log::error!("attach_output reader failed: {}", e);
+            } else {
+                session_handle.channel_success(channel_id).await.unwrap();
+            }
+
+            let _ = session_handle.exit_status_request(channel_id, 0).await;
+            let _ = session_handle.channel_success(channel_id).await;
+            let _ = session_handle.close(channel_id).await;
+        });
+
+        log::debug!("exec_request done");
+        session.request_success();
         Ok((self, session))
     }
 
@@ -270,58 +289,43 @@ impl russh::server::Handler for SshSession {
         channel_id: ChannelId,
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
-        let Some(user) = self.user.as_ref() else {
-            bail!("user not found");
-        };
+        log::debug!("shell_request");
+        let username = self.user()?.username.clone();
+        let attach = self
+            .containers
+            .attach(&username, None, self.channel(channel_id)?.pty.clone())
+            .await?;
 
-        let (attach_id, attach_output) = {
-            let Some(ref mut channel) = self.channels.get_mut(&channel_id) else {
-                log::error!("channel not found");
-                bail!("channel not found");
+        self.channels.alter(&channel_id, |_, mut v| {
+            v.shell = UserContainer {
+                _container_id: Some(attach.container_id.clone()),
+                exec_id: Some(attach.id.clone()),
+                stream: Some(Mutex::new(attach.input)),
             };
+            v
+        });
 
-            let attach = self
-                .containers
-                .attach(&user.username, self.command.clone())
-                .await
-                .map_err(|e| {
-                    log::error!("attach failed: {}", e);
-                    e
-                })?;
-
-            channel.pty = Some(Pty {
-                id: attach.id.clone(),
-                input: Mutex::new(attach.input),
-            });
-
-            (attach.id, attach.output)
-        };
-        self.docker_attach = Some(attach_id);
-
+        let attach_output = attach.output;
         // Read bytes from the PTY and send them to the SSH client
         let session_handle = session.handle();
 
         tokio::spawn(async move {
-            let reader = attach_output.0.into_stream();
             info!("attach_output reader spawned");
 
-            let res = reader
+            let res = attach_output
+                .0
+                .into_stream()
                 .try_for_each(|output| async {
-                    match output {
-                        LogOutput::StdErr { message } | LogOutput::StdOut { message } => {
-                            session_handle
-                                .data(channel_id, CryptoVec::from_slice(&message))
-                                .await
-                                .map_err(|e| {
-                                    println!(
-                                        "data failed: {:?}",
-                                        String::from_utf8_lossy(e.as_ref())
-                                    )
-                                })
-                                .unwrap();
-                        }
-                        _ => {}
-                    };
+                    let out = output.into_bytes();
+                    if !out.is_empty() {
+                        session_handle
+                            .data(channel_id, CryptoVec::from_slice(&out))
+                            .await
+                            .map_err(|e| {
+                                println!("data failed: {:?}", String::from_utf8_lossy(e.as_ref()))
+                            })
+                            .unwrap();
+                    }
 
                     Ok(())
                 })
@@ -332,64 +336,26 @@ impl russh::server::Handler for SshSession {
                 log::error!("attach_output reader failed: {}", e);
             }
 
-            session_handle.eof(channel_id).await.unwrap();
-            session_handle.close(channel_id).await.unwrap();
-
-            // TODO: Clean up
+            let _ = session_handle.exit_status_request(channel_id, 0).await;
+            let _ = session_handle.channel_success(channel_id).await;
+            let _ = session_handle.close(channel_id).await;
         });
-
-        // todo: initial shell size
-        {
-            let Some(mut channel) = self.channels.get_mut(&channel_id) else {
-                bail!("channel not found");
-            };
-            let (col_width, row_height) = channel.pty_size.unwrap_or((80, 24));
-
-            if let Some(pty) = channel.pty.as_mut() {
-                self.containers
-                    .resize(&pty.id, col_width, row_height)
-                    .await?;
-            };
-        }
 
         Ok((self, session))
     }
 
     async fn data(
-        self,
+        mut self,
         channel_id: ChannelId,
         data: &[u8],
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
         // SSH client sends data, pipe it to the corresponding PTY
-
-        // info!("data: {:?}", String::from_utf8_lossy(data));
-
+        // info!("data packet: {:?}", String::from_utf8_lossy(data));
         {
-            let Some(channel) = self.channels.get_mut(&channel_id) else {
-                error!("channel not found: {}", channel_id);
-                bail!("channel not found: {}", channel_id);
-            };
-
-            if let Some(pty) = &channel.pty {
-                let mut input = pty.input.lock().await;
-
-                match input.0.write_all(data).await {
-                    Ok(_) => {}
-                    Err(e) => log::error!("failed to write to pty: {}", e),
-                }
-
-                // TODO: maybe we don't need to block here:
-                // match pty.input.try_lock() {
-                //     Ok(mut input) => {
-                //         input.0.write_all(data).await?;
-                //     }
-                //     Err(e) => {
-                //         log::error!("pty.input.lock() failed: {}", e);
-                //     }
-                // }
-            } else {
-                error!("no pty for channel {}", channel_id);
+            match self.channel(channel_id)?.shell.write_all(data).await {
+                Ok(_) => {}
+                Err(e) => log::error!("failed to write to pty: {}", e),
             }
         }
 
@@ -411,10 +377,14 @@ impl russh::server::Handler for SshSession {
                 bail!("channel not found");
             };
 
-            channel.pty_size = Some((col_width as u16, row_height as u16));
             if let Some(pty) = channel.pty.as_mut() {
+                pty.pty_size = Some((col_width as u16, row_height as u16));
                 self.containers
-                    .resize(&pty.id, col_width as u16, row_height as u16)
+                    .resize(
+                        channel.shell.exec_id()?,
+                        col_width as u16,
+                        row_height as u16,
+                    )
                     .await?;
             };
         }
@@ -427,11 +397,23 @@ impl russh::server::Handler for SshSession {
         channel_id: ChannelId,
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
+        log::debug!("channel_close");
         // Clean up
         if let Some((_, channel)) = self.channels.remove(&channel_id) {
-            if let Some(pty) = channel.pty {
-                self.containers.detatch(&pty.id).await?;
-            }
+            let _ = self.containers.detatch(channel.shell.exec_id()?).await;
+        }
+
+        Ok((self, session))
+    }
+
+    async fn channel_eof(
+        self,
+        channel_id: ChannelId,
+        session: Session,
+    ) -> Result<(Self, Session), Self::Error> {
+        // Clean up
+        if let Some((_, channel)) = self.channels.remove(&channel_id) {
+            let _ = self.containers.detatch(channel.shell.exec_id()?).await;
         }
 
         Ok((self, session))

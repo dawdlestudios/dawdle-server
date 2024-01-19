@@ -42,7 +42,7 @@ pub async fn login(
     if !valid {
         return Err(APIError::custom(
             StatusCode::UNAUTHORIZED,
-            &"invalid password",
+            "invalid password",
         ));
     };
 
@@ -275,4 +275,29 @@ pub async fn change_password(
         .map_err(|_| APIError::InternalServerError)?;
 
     Ok((Json(json!({ "success": true }))).into_response())
+}
+
+pub async fn get_sites(State(state): State<AppState>) -> APIResult<impl IntoResponse> {
+    let sites = state
+        .sites
+        .iter()
+        .map(|site| {
+            let website = site.value();
+            let hostname = site.key();
+
+            match website {
+                Website::User(username) => json!({
+                    "type": "user",
+                    "username": username,
+                }),
+                Website::Site(username, _path) => json!({
+                    "type": "site",
+                    "hostname": hostname,
+                    "username": username,
+                }),
+            }
+        })
+        .collect::<serde_json::Value>();
+
+    Ok((Json(sites)).into_response())
 }

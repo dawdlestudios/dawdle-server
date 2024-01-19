@@ -123,10 +123,11 @@ pub fn create_dir_service(
             if let Some(Ok(ranges)) = maybe_range.as_ref() {
                 // if there is any other amount of ranges than 1 we'll return an
                 // unsatisfiable later as there isn't yet support for multipart ranges
-                if ranges.len() == 1 {
-                    if let Err(_) = file.seek(SeekFrom::Start(*ranges[0].start())).await {
-                        return Ok(APIError::error("failed to seek").into_response());
-                    }
+                if ranges.len() == 1 && file
+                        .seek(SeekFrom::Start(*ranges[0].start()))
+                        .await
+                        .is_err() {
+                    return Ok(APIError::error("failed to seek").into_response());
                 }
             }
 
@@ -173,33 +174,33 @@ fn build_response(output: FileOutput) -> Response<Body> {
 
     match output.maybe_range {
         Some(Ok(ranges)) => {
-            if let Some(range) = ranges.first() {
-                if ranges.len() > 1 {
-                    return APIError::error("multipart ranges not supported yet").into_response();
-                } else {
-                    let body = if let Some(file) = output.file {
-                        let range_size = range.end() - range.start() + 1;
+            let Some(range) = ranges.first() else {
+                return APIError::error("No range found after parsing range header")
+                    .into_response();
+            };
 
-                        let stream =
-                            ReaderStream::with_capacity(file.take(range_size), output.chunk_size);
-                        Body::from_stream(stream)
-                    } else {
-                        Body::empty()
-                    };
-
-                    builder
-                        .header(
-                            header::CONTENT_RANGE,
-                            format!("bytes {}-{}/{}", range.start(), range.end(), size),
-                        )
-                        .header(header::CONTENT_LENGTH, range.end() - range.start() + 1)
-                        .status(StatusCode::PARTIAL_CONTENT)
-                        .body(body)
-                        .unwrap()
-                }
-            } else {
-                APIError::error("No range found after parsing range header").into_response()
+            if ranges.len() > 1 {
+                return APIError::error("multipart ranges not supported yet").into_response();
             }
+
+            let body = if let Some(file) = output.file {
+                let range_size = range.end() - range.start() + 1;
+
+                let stream = ReaderStream::with_capacity(file.take(range_size), output.chunk_size);
+                Body::from_stream(stream)
+            } else {
+                Body::empty()
+            };
+
+            builder
+                .header(
+                    header::CONTENT_RANGE,
+                    format!("bytes {}-{}/{}", range.start(), range.end(), size),
+                )
+                .header(header::CONTENT_LENGTH, range.end() - range.start() + 1)
+                .status(StatusCode::PARTIAL_CONTENT)
+                .body(body)
+                .unwrap()
         }
 
         Some(Err(_)) => builder
@@ -258,7 +259,7 @@ fn check_modified_headers(
     if let Some(since) = if_modified_since {
         let unmodified = modified
             .as_ref()
-            .map(|time| !(since < *time))
+            .map(|time| since >= *time)
             // no last_modified means its always modified
             .unwrap_or(false);
         if unmodified {

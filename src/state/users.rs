@@ -94,6 +94,8 @@ impl UserState {
     }
 
     pub fn claim(&self, token: &str, username: &str, pw: &str) -> Result<()> {
+        log::info!("claiming application with token {} for {}", token, username);
+
         let application_id = self
             .claim_tokens
             .get(token)?
@@ -147,11 +149,16 @@ impl UserState {
         let user_home = std::path::Path::new(&self.config.base_dir)
             .join(crate::config::FILES_FOLDER)
             .join(crate::config::FILES_HOME)
-            .join(&username);
+            .join(username);
 
         if !user_home.exists() {
             std::fs::create_dir_all(&user_home)?;
         }
+
+        log::info!(
+            "copying default home folder to {}",
+            user_home.to_str().unwrap()
+        );
 
         for entry in std::fs::read_dir(default_home)? {
             let entry = entry?;
@@ -163,6 +170,11 @@ impl UserState {
             }
         }
 
+        Ok(())
+    }
+
+    pub fn delete_application(&self, id: &str) -> Result<()> {
+        self.applications.delete(id)?;
         Ok(())
     }
 }
@@ -186,13 +198,23 @@ impl UserState {
     }
 
     pub fn create(&self, username: &str, user: User) -> Result<()> {
-        self.users.set_nx(&username, &user)?;
+        self.users.set_nx(username, &user)?;
+        Ok(())
+    }
+
+    pub fn delete(&self, username: &str) -> Result<()> {
+        self.users.delete(username)?;
         Ok(())
     }
 
     pub fn get(&self, username: &str) -> Result<Option<User>> {
         let user = self.users.get(username)?;
         Ok(user)
+    }
+
+    pub fn users(&self) -> Result<Vec<(String, User)>> {
+        let users = self.users.iter()?.collect::<Result<Vec<_>, _>>()?;
+        Ok(users)
     }
 
     pub fn add_public_key(&self, username: &str, name: &str, data: &str) -> Result<()> {

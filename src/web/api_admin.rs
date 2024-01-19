@@ -65,3 +65,48 @@ pub async fn approve_application(
 
     Ok((Json(json!({ "success": true, "token": token }))).into_response())
 }
+
+pub async fn delete_application(
+    _user: middleware::Admin,
+    State(state): State<AppState>,
+    body: Json<IdRequest>,
+) -> APIResult<impl IntoResponse> {
+    let id = body.0.id;
+
+    state
+        .user
+        .delete_application(&id)
+        .map_err(|_| super::errors::APIError::InternalServerError)?;
+
+    Ok((Json(json!({ "success": true }))).into_response())
+}
+
+pub async fn get_users(
+    _user: middleware::Admin,
+    State(state): State<AppState>,
+) -> APIResult<impl IntoResponse> {
+    let users = state
+        .user
+        .users()
+        .map_err(|_| super::errors::APIError::InternalServerError)?
+        .iter()
+        .map(|(username, user)| json!({ "username":  username, "role": user.role }))
+        .collect::<Vec<_>>();
+
+    Ok((Json(users)).into_response())
+}
+
+pub async fn delete_user(
+    _user: middleware::Admin,
+    State(state): State<AppState>,
+    body: Json<IdRequest>,
+) -> APIResult<impl IntoResponse> {
+    let id = body.0.id;
+
+    state
+        .user
+        .delete(&id)
+        .map_err(|_| super::errors::APIError::InternalServerError)?;
+
+    Ok((Json(json!({ "success": true }))).into_response())
+}

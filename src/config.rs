@@ -10,7 +10,7 @@ pub const FILES_FOLDER: &str = ".files";
 pub const DB_FOLDER: &str = ".db";
 
 pub const FILES_HOME: &str = "home/";
-pub const FILES_DEFAULT_HOME: &str = "default-home/";
+pub const FILES_DEFAULT_HOME: &str = "default-home";
 
 use std::sync::Arc;
 

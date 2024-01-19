@@ -31,7 +31,10 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
         .route("/guestbook", get(api_admin::get_guestbook_requests))
         .route("/guestbook", post(api_admin::approve_guestbook_entry))
         .route("/applications", get(api_admin::get_applications))
-        .route("/applications", post(api_admin::approve_application));
+        .route("/applications", post(api_admin::approve_application))
+        .route("/applications", delete(api_admin::delete_application))
+        .route("/users", get(api_admin::get_users))
+        .route("/user/{username}", delete(api_admin::delete_user));
 
     let www_path = std::path::Path::new(&state.config.base_dir)
         .join(crate::config::FILES_FOLDER)
@@ -56,6 +59,7 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
                 .route("/public_key", delete(api::remove_public_key))
                 .route("/apply", post(api::apply))
                 .route("/claim", post(api::claim))
+                .route("/sites", get(api::get_sites))
                 .fallback(|| async { APIError::NotFound.into_response() }),
         )
         .route("/api/webdav", any(webdav::handler))

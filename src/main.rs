@@ -29,7 +29,7 @@ async fn main() -> eyre::Result<()> {
 
     if let Some((username, password)) = &state.config.initial_user {
         let _ = state.user.create(
-            &username,
+            username,
             crate::state::User {
                 role: Some("admin".to_string()),
                 public_keys: vec![],

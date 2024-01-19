@@ -16,9 +16,17 @@ pub struct Containers {
 }
 
 pub struct Attach {
+    pub container_id: String,
     pub id: String,
     pub output: AttachOutput,
     pub input: AttachInput,
+}
+
+#[derive(Clone)]
+pub struct Pty {
+    pub pty_term: Option<String>,
+    pub pty_modes: Option<Vec<(russh::Pty, u32)>>,
+    pub pty_size: Option<(u16, u16)>,
 }
 
 pub struct AttachInput(pub Pin<Box<dyn AsyncWrite + Send>>);
@@ -168,7 +176,12 @@ impl Containers {
 
     // attach a new exec process to the user's container
     // create a container if one doesn't exist
-    pub async fn attach(&self, user: &str, command: Option<String>) -> Result<Attach> {
+    pub async fn attach(
+        &self,
+        user: &str,
+        command: Option<String>,
+        tty: Option<Pty>,
+    ) -> Result<Attach> {
         assert!(is_valid_username(user));
 
         // get or create the container
@@ -183,11 +196,10 @@ impl Containers {
             .await?;
 
         let command = command.unwrap_or("".to_string());
-        let open_zsh_home = format!("clear; cd /home/{user}; exec zsh");
-        let exec_command = format!("cd /home/{user}; {command}");
+        let exec_command = format!("set -e; {}", command);
 
         let cmd = match command.is_empty() {
-            true => vec!["/bin/bash", "-l", "-i", "-c", &open_zsh_home],
+            true => vec!["/bin/zsh", "-l", "-i"],
             false => vec!["/bin/bash", "-c", &exec_command],
         };
 
@@ -200,7 +212,8 @@ impl Containers {
                     attach_stderr: Some(true),
                     attach_stdout: Some(true),
                     attach_stdin: Some(true),
-                    tty: Some(true),
+                    working_dir: Some(&format!("/home/{}", user)),
+                    tty: Some(tty.is_some()),
                     env: Some(vec!["TERM=xterm-256color"]),
                     ..Default::default()
                 },
@@ -221,8 +234,15 @@ impl Containers {
             panic!("expected Attached");
         };
 
+        if let Some(tty) = tty {
+            if let Some((width, height)) = tty.pty_size {
+                self.resize(&exec.id, width, height).await?;
+            }
+        }
+
         Ok(Attach {
             id: exec.id,
+            container_id,
             output: AttachOutput(output),
             input: AttachInput(input),
         })
