@@ -1,5 +1,5 @@
 FROM debian:12-slim
-ARG EXTRA_DEPS="sudo micro git procps build-essential zsh curl wget vim nano tar gzip unzip bzip2 xz-utils"
+ARG EXTRA_DEPS="sudo micro git procps build-essential zsh curl wget vim nano tar gzip unzip bzip2 xz-utils rsync"
 
 USER root
 

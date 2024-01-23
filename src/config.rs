@@ -16,6 +16,8 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::utils::{is_valid_project_path, is_valid_username};
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_base_dir")]
@@ -38,6 +40,34 @@ fn default_base_dir() -> String {
 }
 
 impl Config {
+    pub fn user_public_path(&self, username: &str) -> Option<std::path::PathBuf> {
+        if !is_valid_username(username) {
+            return None;
+        }
+
+        Some(
+            std::path::Path::new(&self.base_dir)
+                .join(crate::config::FILES_FOLDER)
+                .join(crate::config::FILES_HOME)
+                .join(username.to_ascii_lowercase())
+                .join("public"),
+        )
+    }
+
+    pub fn project_path(&self, username: &str, project_path: &str) -> Option<std::path::PathBuf> {
+        if !is_valid_username(username) || !is_valid_project_path(project_path) {
+            return None;
+        }
+
+        Some(
+            std::path::Path::new(&self.base_dir)
+                .join(crate::config::FILES_FOLDER)
+                .join(crate::config::FILES_HOME)
+                .join(username.to_ascii_lowercase())
+                .join(project_path),
+        )
+    }
+
     pub fn load() -> color_eyre::eyre::Result<Arc<Self>> {
         let config_path = std::env::var("DAWDLE_HOME_CONFIG").unwrap_or_else(|_| {
             std::env::current_dir()
