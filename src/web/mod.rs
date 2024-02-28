@@ -3,13 +3,26 @@ use crate::{
     web::errors::APIError,
 };
 use axum::{
-    body::Body, extract::Request, handler::HandlerWithoutStateExt, response::IntoResponse,
-    routing::*, Router,
+    body::Body,
+    extract::Request,
+    handler::HandlerWithoutStateExt,
+    http::{header, HeaderValue},
+    response::IntoResponse,
+    routing::*,
+    Router,
 };
 
 use color_eyre::eyre::Result;
 use std::net::SocketAddr;
 use tower::{Service, ServiceBuilder, ServiceExt};
+use tower_http::{
+    compression::{
+        predicate::{NotForContentType, SizeAbove},
+        CompressionLayer, DefaultPredicate, Predicate,
+    },
+    set_header::SetResponseHeaderLayer,
+    CompressionLevel,
+};
 
 use self::{
     errors::{APIResult, NOT_FOUND},
@@ -71,8 +84,54 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
         ))
         .with_state(state.clone());
 
+    let predicate = DefaultPredicate::new()
+        .and(NotForContentType::new("video/"))
+        .and(NotForContentType::new("audio/"))
+        .and(NotForContentType::new("font/"))
+        .and(NotForContentType::new("application/zip"))
+        .and(NotForContentType::new("application/x-tar"))
+        .and(NotForContentType::new("application/x-gzip"))
+        .and(NotForContentType::new("application/x-bzip2"))
+        .and(NotForContentType::new("application/x-rar-compressed"))
+        .and(NotForContentType::new("application/x-7z-compressed"))
+        .and(NotForContentType::new("application/x-xz"))
+        .and(NotForContentType::new("application/x-lzip"))
+        .and(NotForContentType::new("application/x-lzma"))
+        .and(NotForContentType::new("application/x-lz4"))
+        .and(NotForContentType::new("application/x-zstd"));
+
+    let compress = CompressionLayer::new()
+        .quality(CompressionLevel::Fastest)
+        .no_br()
+        .no_deflate()
+        .no_zstd()
+        .compress_when(predicate);
+
     // only construct the router service once
-    let mut router_service = ServiceBuilder::new().service(router.into_service::<Body>());
+    let mut router_service = ServiceBuilder::new()
+        .layer(compress)
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::SERVER,
+            HeaderValue::from_static("dawdle.space"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_XSS_PROTECTION,
+            HeaderValue::from_static("1; mode=block"),
+        ))
+        .service(router.into_service::<Body>());
+
     router_service.ready().await?;
 
     // Use a different service based on the hostname

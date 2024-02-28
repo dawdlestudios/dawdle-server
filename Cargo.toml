@@ -41,6 +41,7 @@ ssh-key={version="0.6.3", features=["ed25519"]}
 dav-server={branch="feature/http-1.0", git="https://github.com/dawdlestudios/dav-server-rs"}
 
 # web dependencies
+tower-http={version="0.5", features=["compression-br", "set-header"]}
 tower="0.4.13"
 axum={version="0.7.2", features=["macros", "ws"]}
 axum-extra={version="0.9", features=["cookie", "typed-header"]}

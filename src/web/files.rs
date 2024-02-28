@@ -10,6 +10,7 @@ use axum::response::Response;
 use axum::{body::Body, extract::Request, response::IntoResponse};
 use http_range_header::RangeUnsatisfiableError;
 use httpdate::HttpDate;
+use mime_guess::Mime;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 use tower::{service_fn, Service};
@@ -123,10 +124,12 @@ pub fn create_dir_service(
             if let Some(Ok(ranges)) = maybe_range.as_ref() {
                 // if there is any other amount of ranges than 1 we'll return an
                 // unsatisfiable later as there isn't yet support for multipart ranges
-                if ranges.len() == 1 && file
+                if ranges.len() == 1
+                    && file
                         .seek(SeekFrom::Start(*ranges[0].start()))
                         .await
-                        .is_err() {
+                        .is_err()
+                {
                     return Ok(APIError::error("failed to seek").into_response());
                 }
             }
@@ -138,7 +141,7 @@ pub fn create_dir_service(
                 last_modified,
                 maybe_range,
                 metadata: meta,
-                mime_header_value: mime,
+                mime,
             }))
         }
     })
@@ -150,7 +153,7 @@ struct FileOutput {
     pub(super) metadata: std::fs::Metadata,
 
     pub(super) chunk_size: usize,
-    pub(super) mime_header_value: HeaderValue,
+    pub(super) mime: Mime,
     pub(super) maybe_range: Option<Result<Vec<RangeInclusive<u64>>, RangeUnsatisfiableError>>,
     pub(super) last_modified: Option<HttpDate>,
 }
@@ -162,12 +165,41 @@ async fn is_dir(path: &PathBuf) -> bool {
 }
 
 fn build_response(output: FileOutput) -> Response<Body> {
+    let mime_header_value = HeaderValue::from_str(output.mime.essence_str()).unwrap();
+
     let mut builder = Response::builder()
-        .header(header::CONTENT_TYPE, output.mime_header_value)
+        .header(header::CONTENT_TYPE, mime_header_value)
         .header(header::ACCEPT_RANGES, "bytes");
 
     if let Some(last_modified) = output.last_modified {
         builder = builder.header(header::LAST_MODIFIED, last_modified.to_string());
+
+        // Example MIME type handling
+        match output.mime.essence_str() {
+            "text/css" | "application/javascript" | "application/x-javascript" => {
+                // Cache for 1 week
+                builder = builder.header(header::CACHE_CONTROL, "max-age=604800");
+            }
+            _ if output.mime.type_() == mime_guess::mime::APPLICATION => {
+                // Immediately invalidate
+                builder = builder.header(header::CACHE_CONTROL, "no-cache");
+            }
+            _ if output.mime.type_() == mime_guess::mime::IMAGE
+                || output.mime.type_() == mime_guess::mime::VIDEO
+                || output.mime.type_() == mime_guess::mime::AUDIO =>
+            {
+                // Cache for 1 week
+                builder = builder.header(header::CACHE_CONTROL, "max-age=604800");
+            }
+            _ if output.mime.type_() == mime_guess::mime::FONT => {
+                // Cache for 1 year
+                builder = builder.header(header::CACHE_CONTROL, "max-age=31536000");
+            }
+            _ => {
+                // Default cache for 1 day
+                builder = builder.header(header::CACHE_CONTROL, "max-age=86400");
+            }
+        }
     }
 
     let size = output.metadata.len();
@@ -276,9 +308,7 @@ fn check_modified_headers(
 }
 
 // returns None if the fallback file doesn't exist
-async fn open_file(
-    path_to_file: PathBuf,
-) -> Result<Option<(tokio::fs::File, HeaderValue)>, APIError> {
+async fn open_file(path_to_file: PathBuf) -> Result<Option<(tokio::fs::File, Mime)>, APIError> {
     let file = tokio::fs::File::open(&path_to_file).await;
     match file {
         Ok(file) => Ok(Some((file, guess_mime(&path_to_file)))),
@@ -289,7 +319,7 @@ async fn open_file(
                     if let Ok(file) =
                         tokio::fs::File::open(path_to_file.with_extension("html")).await
                     {
-                        return Ok(Some((file, HeaderValue::from_static("text/html"))));
+                        return Ok(Some((file, "text/html".parse().unwrap())));
                     }
                 }
 
@@ -304,11 +334,8 @@ async fn open_file(
     }
 }
 
-fn guess_mime(path: &PathBuf) -> HeaderValue {
-    mime_guess::from_path(path)
-        .first_raw()
-        .map(HeaderValue::from_static)
-        .unwrap_or_else(|| HeaderValue::from_static("application/octet-stream"))
+fn guess_mime(path: &PathBuf) -> Mime {
+    mime_guess::from_path(path).first_or("application/octet-stream".parse().unwrap())
 }
 
 fn to_http_date(value: &HeaderValue) -> Option<HttpDate> {

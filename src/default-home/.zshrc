@@ -2,15 +2,20 @@
 
 autoload -U colors
 colors
-PROMPT="%{$fg[cyan]%}%n%{$reset_color%}@%{$fg[white]%}%M %(?:%{$fg_bold[green]%}➜ :%{$fg_bold[red]%}➜ ) %{$fg[cyan]%}%c%{$reset_color%} "
+PROMPT="%{$fg[cyan]%}%n%{$reset_color%}@%{$fg[white]%}%M %(?:%{$fg_bold[green]%}> :%{$fg_bold[red]%}> ) %{$fg[cyan]%}%c%{$reset_color%} "
 
 export ZSH="$HOME/.config/zsh"
 export ZSH_CACHE_DIR="$ZSH/cache"
 export ZSH_COMPDUMP="$ZSH_CACHE_DIR/zcompdump"
 export ZSH_HISTFILE="$ZSH_CACHE_DIR/history"
 
+sudo() {
+    command sudo "$@"
+    rm -f ~/.sudo_as_admin_successful
+}
+
 export EDITOR='micro'
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:/usr/local/dawdle/bin:$PATH"
 export LESSHISTFILE=-
 
 alias ll='ls -la'
