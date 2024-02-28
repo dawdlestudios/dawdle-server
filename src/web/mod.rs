@@ -15,14 +15,7 @@ use axum::{
 use color_eyre::eyre::Result;
 use std::net::SocketAddr;
 use tower::{Service, ServiceBuilder, ServiceExt};
-use tower_http::{
-    compression::{
-        predicate::{NotForContentType, SizeAbove},
-        CompressionLayer, DefaultPredicate, Predicate,
-    },
-    set_header::SetResponseHeaderLayer,
-    CompressionLevel,
-};
+use tower_http::set_header::SetResponseHeaderLayer;
 
 use self::{
     errors::{APIResult, NOT_FOUND},
@@ -84,32 +77,8 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
         ))
         .with_state(state.clone());
 
-    let predicate = DefaultPredicate::new()
-        .and(NotForContentType::new("video/"))
-        .and(NotForContentType::new("audio/"))
-        .and(NotForContentType::new("font/"))
-        .and(NotForContentType::new("application/zip"))
-        .and(NotForContentType::new("application/x-tar"))
-        .and(NotForContentType::new("application/x-gzip"))
-        .and(NotForContentType::new("application/x-bzip2"))
-        .and(NotForContentType::new("application/x-rar-compressed"))
-        .and(NotForContentType::new("application/x-7z-compressed"))
-        .and(NotForContentType::new("application/x-xz"))
-        .and(NotForContentType::new("application/x-lzip"))
-        .and(NotForContentType::new("application/x-lzma"))
-        .and(NotForContentType::new("application/x-lz4"))
-        .and(NotForContentType::new("application/x-zstd"));
-
-    let compress = CompressionLayer::new()
-        .quality(CompressionLevel::Fastest)
-        .no_br()
-        .no_deflate()
-        .no_zstd()
-        .compress_when(predicate);
-
     // only construct the router service once
     let mut router_service = ServiceBuilder::new()
-        .layer(compress)
         .layer(SetResponseHeaderLayer::if_not_present(
             header::SERVER,
             HeaderValue::from_static("dawdle.space"),

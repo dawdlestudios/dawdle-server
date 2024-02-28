@@ -153,7 +153,7 @@ struct FileOutput {
     pub(super) metadata: std::fs::Metadata,
 
     pub(super) chunk_size: usize,
-    pub(super) mime: Mime,
+    pub(super) mime: Option<Mime>,
     pub(super) maybe_range: Option<Result<Vec<RangeInclusive<u64>>, RangeUnsatisfiableError>>,
     pub(super) last_modified: Option<HttpDate>,
 }
@@ -165,39 +165,42 @@ async fn is_dir(path: &PathBuf) -> bool {
 }
 
 fn build_response(output: FileOutput) -> Response<Body> {
-    let mime_header_value = HeaderValue::from_str(output.mime.essence_str()).unwrap();
+    let mut builder = Response::builder().header(header::ACCEPT_RANGES, "bytes");
 
-    let mut builder = Response::builder()
-        .header(header::CONTENT_TYPE, mime_header_value)
-        .header(header::ACCEPT_RANGES, "bytes");
+    if let Some(mime_val) = output.mime {
+        let mime_header_value = HeaderValue::from_str(mime_val.essence_str()).unwrap();
+        builder = builder.header(header::CONTENT_TYPE, mime_header_value);
 
-    if let Some(last_modified) = output.last_modified {
-        builder = builder.header(header::LAST_MODIFIED, last_modified.to_string());
+        if let Some(last_modified) = output.last_modified {
+            builder = builder.header(header::LAST_MODIFIED, last_modified.to_string());
 
-        // Example MIME type handling
-        match output.mime.essence_str() {
-            "text/css" | "application/javascript" | "application/x-javascript" => {
-                // Cache for 1 week
-                builder = builder.header(header::CACHE_CONTROL, "max-age=604800");
-            }
-            _ if output.mime.type_() == mime_guess::mime::APPLICATION => {
-                // Immediately invalidate
-                builder = builder.header(header::CACHE_CONTROL, "no-cache");
-            }
-            _ if output.mime.type_() == mime_guess::mime::IMAGE
-                || output.mime.type_() == mime_guess::mime::VIDEO
-                || output.mime.type_() == mime_guess::mime::AUDIO =>
-            {
-                // Cache for 1 week
-                builder = builder.header(header::CACHE_CONTROL, "max-age=604800");
-            }
-            _ if output.mime.type_() == mime_guess::mime::FONT => {
-                // Cache for 1 year
-                builder = builder.header(header::CACHE_CONTROL, "max-age=31536000");
-            }
-            _ => {
-                // Default cache for 1 day
-                builder = builder.header(header::CACHE_CONTROL, "max-age=86400");
+            // Example MIME type handling
+            match mime_val.essence_str() {
+                "text/css" | "application/javascript" | "application/x-javascript" => {
+                    // Cache for 1 week
+                    builder = builder.header(header::CACHE_CONTROL, "max-age=604800");
+                }
+                _ if mime_val.type_() == mime_guess::mime::TEXT
+                    || mime_val.type_() == mime_guess::mime::APPLICATION =>
+                {
+                    // Don't cache
+                    builder = builder.header(header::CACHE_CONTROL, "no-cache");
+                }
+                _ if mime_val.type_() == mime_guess::mime::IMAGE
+                    || mime_val.type_() == mime_guess::mime::VIDEO
+                    || mime_val.type_() == mime_guess::mime::AUDIO =>
+                {
+                    // Cache for 1 week
+                    builder = builder.header(header::CACHE_CONTROL, "max-age=604800");
+                }
+                _ if mime_val.type_() == mime_guess::mime::FONT => {
+                    // Cache for 1 year
+                    builder = builder.header(header::CACHE_CONTROL, "max-age=31536000");
+                }
+                _ => {
+                    // Default cache for 1 day
+                    builder = builder.header(header::CACHE_CONTROL, "max-age=86400");
+                }
             }
         }
     }
@@ -308,7 +311,9 @@ fn check_modified_headers(
 }
 
 // returns None if the fallback file doesn't exist
-async fn open_file(path_to_file: PathBuf) -> Result<Option<(tokio::fs::File, Mime)>, APIError> {
+async fn open_file(
+    path_to_file: PathBuf,
+) -> Result<Option<(tokio::fs::File, Option<Mime>)>, APIError> {
     let file = tokio::fs::File::open(&path_to_file).await;
     match file {
         Ok(file) => Ok(Some((file, guess_mime(&path_to_file)))),
@@ -319,7 +324,7 @@ async fn open_file(path_to_file: PathBuf) -> Result<Option<(tokio::fs::File, Mim
                     if let Ok(file) =
                         tokio::fs::File::open(path_to_file.with_extension("html")).await
                     {
-                        return Ok(Some((file, "text/html".parse().unwrap())));
+                        return Ok(Some((file, Some("text/html".parse().unwrap()))));
                     }
                 }
 
@@ -334,8 +339,8 @@ async fn open_file(path_to_file: PathBuf) -> Result<Option<(tokio::fs::File, Mim
     }
 }
 
-fn guess_mime(path: &PathBuf) -> Mime {
-    mime_guess::from_path(path).first_or("application/octet-stream".parse().unwrap())
+fn guess_mime(path: &PathBuf) -> Option<Mime> {
+    mime_guess::from_path(path).first()
 }
 
 fn to_http_date(value: &HeaderValue) -> Option<HttpDate> {
