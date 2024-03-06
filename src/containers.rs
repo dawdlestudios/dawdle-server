@@ -226,6 +226,7 @@ impl Containers {
                 &exec.id,
                 Some(bollard::exec::StartExecOptions {
                     detach: false,
+                    tty: tty.is_some(),
                     output_capacity: Some(8 * 1024),
                 }),
             )
