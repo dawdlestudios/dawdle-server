@@ -140,10 +140,10 @@ impl russh::server::Handler for SshSession {
 
     /// just check if the user has the offered public key
     async fn auth_publickey_offered(
-        mut self,
+        &mut self,
         user: &str,
         public_key: &russh_keys::key::PublicKey,
-    ) -> Result<(Self, Auth), Self::Error> {
+    ) -> Result<Auth, Self::Error> {
         debug!("offered credentials: {}, {:?}", user, public_key);
         let user = self.get_user(user).await?;
 
@@ -154,49 +154,49 @@ impl russh::server::Handler for SshSession {
             },
         };
 
-        Ok((self, res))
+        Ok(res)
     }
 
     /// actually authenticate the user
     /// Signature has been verified, now we need to check if the user is allowed to login
     async fn auth_publickey(
-        mut self,
+        &mut self,
         user: &str,
         _public_key: &russh_keys::key::PublicKey,
-    ) -> Result<(Self, Auth), Self::Error> {
+    ) -> Result<Auth, Self::Error> {
         let _ = self.get_user(user).await?;
-        Ok((self, Auth::Accept))
+        Ok(Auth::Accept)
     }
 
     /// A new channel has been opened by the client.
     async fn channel_open_session(
-        mut self,
+        &mut self,
         channel: Channel<Msg>,
-        session: Session,
-    ) -> Result<(Self, bool, Session), Self::Error> {
+        _session: &mut Session,
+    ) -> Result<bool, Self::Error> {
         info!("channel_open_session");
         self.channels.insert(channel.id(), SshChannel::default());
-        Ok((self, true, session))
+        Ok(true)
     }
 
     async fn env_request(
-        self,
+        &mut self,
         channel: ChannelId,
         variable_name: &str,
         variable_value: &str,
-        session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
         self.channels.alter(&channel, |_, mut v| {
             v.env
                 .get_or_insert_with(Vec::new)
                 .push((variable_name.to_string(), variable_value.to_string()));
             v
         });
-        Ok((self, session))
+        Ok(())
     }
 
     async fn pty_request(
-        mut self,
+        &mut self,
         channel: ChannelId,
         term: &str,
         col_width: u32,
@@ -204,8 +204,8 @@ impl russh::server::Handler for SshSession {
         _pix_width: u32,
         _pix_height: u32,
         modes: &[(russh::Pty, u32)],
-        session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
         log::debug!("pty_request: {:?}", modes);
         self.channels.alter(&channel, |_k, mut v| {
             v.pty = Some(Pty {
@@ -215,15 +215,15 @@ impl russh::server::Handler for SshSession {
             });
             v
         });
-        Ok((self, session))
+        Ok(())
     }
 
     async fn exec_request(
-        mut self,
+        &mut self,
         channel_id: ChannelId,
         data: &[u8],
-        mut session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
         log::debug!("exec_request");
         let command = String::from_utf8(data.to_vec())?;
 
@@ -281,14 +281,14 @@ impl russh::server::Handler for SshSession {
 
         log::debug!("exec_request done");
         session.request_success();
-        Ok((self, session))
+        Ok(())
     }
 
     async fn shell_request(
-        mut self,
+        &mut self,
         channel_id: ChannelId,
-        session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
         log::debug!("shell_request");
         let username = self.user()?.username.clone();
         let attach = self
@@ -341,15 +341,15 @@ impl russh::server::Handler for SshSession {
             let _ = session_handle.close(channel_id).await;
         });
 
-        Ok((self, session))
+        Ok(())
     }
 
     async fn data(
-        mut self,
+        &mut self,
         channel_id: ChannelId,
         data: &[u8],
-        session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
         // SSH client sends data, pipe it to the corresponding PTY
         // info!("data packet: {:?}", String::from_utf8_lossy(data));
         {
@@ -359,19 +359,19 @@ impl russh::server::Handler for SshSession {
             }
         }
 
-        Ok((self, session))
+        Ok(())
     }
 
     /// The client's pseudo-terminal window size has changed.
     async fn window_change_request(
-        self,
+        &mut self,
         channel_id: ChannelId,
         col_width: u32,
         row_height: u32,
         _pix_width: u32,
         _pix_height: u32,
-        session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
         {
             let Some(mut channel) = self.channels.get_mut(&channel_id) else {
                 bail!("channel not found");
@@ -389,33 +389,33 @@ impl russh::server::Handler for SshSession {
             };
         }
 
-        Ok((self, session))
+        Ok(())
     }
 
     async fn channel_close(
-        self,
+        &mut self,
         channel_id: ChannelId,
-        session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
         log::debug!("channel_close");
         // Clean up
         if let Some((_, channel)) = self.channels.remove(&channel_id) {
             let _ = self.containers.detatch(channel.shell.exec_id()?).await;
         }
 
-        Ok((self, session))
+        Ok(())
     }
 
     async fn channel_eof(
-        self,
+        &mut self,
         channel_id: ChannelId,
-        session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
         // Clean up
         if let Some((_, channel)) = self.channels.remove(&channel_id) {
             let _ = self.containers.detatch(channel.shell.exec_id()?).await;
         }
 
-        Ok((self, session))
+        Ok(())
     }
 }

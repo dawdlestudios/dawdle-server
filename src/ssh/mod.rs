@@ -5,6 +5,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::containers::Containers;
 use color_eyre::eyre::{Ok, Result};
+use russh::server::Server;
 use russh_keys::key::KeyPair;
 use session::SshSession;
 
@@ -15,7 +16,7 @@ pub struct SshServer {
 }
 
 impl SshServer {
-    pub async fn run(self, addr: SocketAddr) -> Result<()> {
+    pub async fn run(mut self, addr: SocketAddr) -> Result<()> {
         let key = self.get_key()?;
         let config = russh::server::Config {
             auth_rejection_time: Duration::from_secs(1),
@@ -24,8 +25,7 @@ impl SshServer {
             ..Default::default()
         };
 
-        russh::server::run(Arc::new(config), addr, self).await?;
-
+        self.run_on_address(Arc::new(config), addr).await?;
         Ok(())
     }
 

@@ -32,8 +32,8 @@ okv={version="0.3", features=["rocksdb", "serde_json"]}
 # ssh server dependencies
 bollard="0.16"
 ed25519-dalek="2.1"
-russh="0.42"
-russh-keys="0.42"
+russh="0.43"
+russh-keys="0.43"
 russh-sftp="1.2"
 ssh-key={version="0.6", features=["ed25519"]}
 
