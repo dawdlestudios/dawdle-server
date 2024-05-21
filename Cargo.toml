@@ -17,7 +17,7 @@ log="0.4"
 async-trait="0.1"
 futures="0.3"
 tokio={version="1", features=["full", "macros"]}
-data-encoding="2.5"
+data-encoding="2.6"
 
 # common dependencies
 serde="1.0"
@@ -34,7 +34,7 @@ bollard="0.16"
 ed25519-dalek="2.1"
 russh="0.43"
 russh-keys="0.43"
-russh-sftp="1.2"
+russh-sftp="2.0"
 ssh-key={version="0.6", features=["ed25519"]}
 
 # webdav
