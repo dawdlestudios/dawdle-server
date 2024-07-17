@@ -38,7 +38,7 @@ russh-sftp="2.0"
 ssh-key={version="0.6", features=["ed25519"]}
 
 # webdav
-dav-server={version="0.6"}
+dav-server={version="0.7"}
 
 # web dependencies
 tower-http={version="0.5", features=["set-header"]}
