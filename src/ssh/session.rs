@@ -113,7 +113,7 @@ impl SshSession {
                 if !key.algorithm().is_ed25519() {
                     eyre::bail!("only ed25519 keys are supported")
                 }
-                let x = parse_public_key(&key.to_bytes()?)?;
+                let x = parse_public_key(&key.to_bytes()?, None)?;
                 Ok(x)
             })
             .collect::<Result<Vec<_>>>()?;
