@@ -1,5 +1,5 @@
 use crate::{
-    state::{AppState, Website},
+    app::{App, Website},
     web::errors::APIError,
 };
 use axum::{
@@ -12,7 +12,7 @@ use axum::{
     Router,
 };
 
-use color_eyre::eyre::Result;
+use eyre::Result;
 use std::net::SocketAddr;
 use tower::{Service, ServiceBuilder, ServiceExt};
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -30,11 +30,9 @@ mod files;
 mod middleware;
 mod webdav;
 
-pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
+pub async fn run(state: App, addr: SocketAddr) -> Result<()> {
     let admin_router = Router::new()
         .route("/", post(api_admin::is_admin))
-        .route("/guestbook", get(api_admin::get_guestbook_requests))
-        .route("/guestbook", post(api_admin::approve_guestbook_entry))
         .route("/applications", get(api_admin::get_applications))
         .route("/applications", post(api_admin::approve_application))
         .route("/applications", delete(api_admin::delete_application))
@@ -56,8 +54,6 @@ pub async fn run(state: AppState, addr: SocketAddr) -> Result<()> {
                 .route("/chat", get(chat::handler))
                 .route("/login", post(api::login))
                 .route("/logout", post(api::logout))
-                .route("/guestbook", get(api::get_guestbook))
-                .route("/guestbook", post(api::add_guestbook_entry))
                 .route("/me", get(api::get_me))
                 .route("/password", post(api::change_password))
                 .route("/public_key", post(api::add_public_key))

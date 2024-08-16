@@ -4,7 +4,7 @@ use axum::{
     response::{Html, IntoResponse},
     Json,
 };
-use color_eyre::eyre::Result;
+use eyre::Result;
 use serde_json::json;
 
 pub type APIResult<T> = Result<T, APIError>;

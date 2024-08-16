@@ -1,6 +1,10 @@
+use argon2::PasswordHasher;
+use eyre::Result;
 use std::fmt::{self, Debug, Formatter};
 
-use argon2::PasswordHasher;
+pub fn to_time(timestamp: i64) -> Result<time::OffsetDateTime> {
+    Ok(time::OffsetDateTime::from_unix_timestamp(timestamp)?)
+}
 
 pub fn is_valid_username(username: &str) -> bool {
     !username.is_empty()
@@ -85,7 +89,7 @@ impl<T: Clone + Debug> RingBuffer<T> {
     }
 }
 
-pub fn hash_pw(password: &str) -> color_eyre::eyre::Result<String> {
+pub fn hash_pw(password: &str) -> eyre::Result<String> {
     Ok(argon2::Argon2::default()
         .hash_password(
             password.as_bytes(),

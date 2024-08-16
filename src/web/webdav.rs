@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::app::App;
 use axum::{
     extract::{Request, State},
     response::IntoResponse,
@@ -15,7 +15,7 @@ use super::{
 pub async fn handler(
     session: OptionalSession,
     basic_auth: BasicAuth,
-    state: State<AppState>,
+    state: State<App>,
     req: Request,
 ) -> APIResult<impl IntoResponse> {
     let username = if let Some(username) = basic_auth.username() {

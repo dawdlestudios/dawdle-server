@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::app::App;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -64,7 +64,7 @@ fn response(chat_response: ChatResponse) -> Message {
     Message::Text(serde_json::to_string(&chat_response).unwrap())
 }
 
-pub async fn handle_chat_socket(stream: WebSocket, username: Option<String>, state: AppState) {
+pub async fn handle_chat_socket(stream: WebSocket, username: Option<String>, state: App) {
     let chat = state.chat;
     let (mut sender, mut receiver) = stream.split();
 

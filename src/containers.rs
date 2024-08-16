@@ -3,7 +3,7 @@ use bollard::{
     exec::StartExecResults,
     Docker,
 };
-use color_eyre::eyre::{eyre, Result};
+use eyre::{eyre, Result};
 use futures::Stream;
 use std::pin::Pin;
 use tokio::io::AsyncWrite;

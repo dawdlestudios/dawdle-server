@@ -1,5 +1,5 @@
 use super::errors::APIError;
-use crate::state::{AppState, Session, User};
+use crate::app::{App, Session, User};
 use crate::web::api::SESSION_COOKIE_NAME;
 use async_trait::async_trait;
 use axum::{
@@ -20,10 +20,10 @@ impl BasicAuth {
 }
 
 #[async_trait]
-impl FromRequestParts<AppState> for BasicAuth {
+impl FromRequestParts<App> for BasicAuth {
     type Rejection = Response;
 
-    async fn from_request_parts(parts: &mut Parts, _: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, _: &App) -> Result<Self, Self::Rejection> {
         let Some(auth) = parts
             .headers
             .get("Authorization")
@@ -57,18 +57,16 @@ impl FromRequestParts<AppState> for BasicAuth {
 pub struct Admin(pub User);
 
 #[async_trait]
-impl FromRequestParts<AppState> for Admin {
+impl FromRequestParts<App> for Admin {
     type Rejection = Response;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &App) -> Result<Self, Self::Rejection> {
         let session = RequiredSession::from_request_parts(parts, state).await?;
 
         let user = state
-            .user
+            .users
             .get(session.username())
+            .await
             .map_err(|_| APIError::Unauthorized.into_response())?
             .ok_or_else(|| APIError::Unauthorized.into_response())?;
 
@@ -90,13 +88,10 @@ impl OptionalSession {
 }
 
 #[async_trait]
-impl FromRequestParts<AppState> for OptionalSession {
+impl FromRequestParts<App> for OptionalSession {
     type Rejection = Response;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &App) -> Result<Self, Self::Rejection> {
         use axum::RequestPartsExt;
 
         let jar = parts.extract::<CookieJar>().await.map_err(|_| {
@@ -105,7 +100,7 @@ impl FromRequestParts<AppState> for OptionalSession {
         })?;
 
         if let Some(session_token) = jar.get(SESSION_COOKIE_NAME).map(|c| c.value().to_string()) {
-            if let Ok(session) = state.user.verify_session(&session_token) {
+            if let Ok(session) = state.sessions.verify(&session_token).await {
                 if let Some(ref session) = session {
                     parts.extensions.insert(RequiredSession(session.clone()));
                 }
@@ -127,12 +122,9 @@ impl RequiredSession {
 }
 
 #[async_trait]
-impl FromRequestParts<AppState> for RequiredSession {
+impl FromRequestParts<App> for RequiredSession {
     type Rejection = Response;
-    async fn from_request_parts(
-        parts: &mut Parts,
-        _state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, _state: &App) -> Result<Self, Self::Rejection> {
         match OptionalSession::from_request_parts(parts, _state).await?.0 {
             Some(session) => Ok(RequiredSession(session)),
             None => Err(APIError::Unauthorized.into_response()),

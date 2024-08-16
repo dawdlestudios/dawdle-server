@@ -1,14 +1,14 @@
-use color_eyre::eyre::{self, bail, Result};
 use dashmap::mapref::one::RefMut;
 use dashmap::DashMap;
+use eyre::{bail, eyre, Result};
 use futures::TryStreamExt;
 use log::{debug, info};
 use russh_keys::key::parse_public_key;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
+use crate::app::App;
 use crate::containers::{AttachInput, Containers, Pty};
-use crate::state::{AppState, User};
 use async_trait::async_trait;
 use russh::server::{Auth, Msg, Session};
 use russh::{Channel, ChannelId, CryptoVec};
@@ -23,7 +23,7 @@ struct UserContainer {
 impl UserContainer {
     async fn write_all(&mut self, data: &[u8]) -> Result<()> {
         let Some(stream) = &self.stream else {
-            bail!("stream not found");
+            bail!("stream not found")
         };
 
         let mut stream = stream.lock().await;
@@ -33,7 +33,7 @@ impl UserContainer {
 
     fn exec_id(&self) -> Result<&str> {
         let Some(id) = &self.exec_id else {
-            bail!("exec_id not found");
+            bail!("exec_id not found")
         };
 
         Ok(id)
@@ -50,19 +50,18 @@ pub struct SshChannel {
 #[derive(Debug)]
 struct SshUser {
     username: String,
-    _user: User,
     keys: Vec<russh_keys::key::PublicKey>,
 }
 
 pub struct SshSession {
-    state: AppState,
+    state: App,
     containers: Containers,
     user: Option<SshUser>,
     channels: DashMap<ChannelId, SshChannel>,
 }
 
 impl SshSession {
-    pub fn new(containers: Containers, state: AppState) -> Self {
+    pub fn new(containers: Containers, state: App) -> Self {
         Self {
             state,
             containers,
@@ -85,30 +84,27 @@ impl SshSession {
     }
 
     async fn get_user(&mut self, username: &str) -> Result<&SshUser> {
-        let user = match self.user {
+        let public_keys = match self.user {
             Some(ref user) => {
                 if user.username == username {
                     return Ok(user);
-                } else {
-                    bail!("user mismatch");
                 }
+                return Err(eyre!("user mismatch"));
             }
             None => {
-                let Some(user) = self.state.user.get(username)? else {
-                    bail!("user not found");
+                let Ok(public_keys) = self.state.users.get_public_keys(username).await else {
+                    bail!("user not found")
                 };
-
-                user
+                public_keys
             }
         };
 
-        let keys = user
-            .public_keys
+        let keys = public_keys
             .iter()
-            .map(|k| {
+            .map(|(_name, key)| {
                 // kinda wastefull to parse it twice
                 // hopefully solved someday: https://github.com/warp-tech/russh/issues/140
-                let key = ssh_key::PublicKey::from_openssh(&k.1)
+                let key = ssh_key::PublicKey::from_openssh(&key)
                     .map_err(|e| eyre::eyre!("failed to parse public key: {}", e))?;
                 if !key.algorithm().is_ed25519() {
                     eyre::bail!("only ed25519 keys are supported")
@@ -120,7 +116,6 @@ impl SshSession {
 
         let user = SshUser {
             username: username.to_string(),
-            _user: user.clone(),
             keys,
         };
 
@@ -374,7 +369,7 @@ impl russh::server::Handler for SshSession {
     ) -> Result<(), Self::Error> {
         {
             let Some(mut channel) = self.channels.get_mut(&channel_id) else {
-                bail!("channel not found");
+                bail!("channel not found")
             };
 
             if let Some(pty) = channel.pty.as_mut() {

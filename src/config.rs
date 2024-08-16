@@ -12,13 +12,11 @@ pub const DB_FOLDER: &str = ".db";
 pub const FILES_HOME: &str = "home/";
 pub const FILES_DEFAULT_HOME: &str = "default-home";
 
-use std::sync::Arc;
-
 use serde::{Deserialize, Serialize};
 
 use crate::utils::{is_valid_project_path, is_valid_username};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_base_dir")]
     pub base_dir: String,
@@ -54,6 +52,12 @@ impl Config {
         )
     }
 
+    pub fn db_path(&self) -> std::path::PathBuf {
+        std::path::Path::new(&self.base_dir)
+            .join(crate::config::DB_FOLDER)
+            .join("db.sqlite")
+    }
+
     pub fn project_path(&self, username: &str, project_path: &str) -> Option<std::path::PathBuf> {
         if !is_valid_username(username) || !is_valid_project_path(project_path) {
             return None;
@@ -68,7 +72,7 @@ impl Config {
         )
     }
 
-    pub fn load() -> color_eyre::eyre::Result<Arc<Self>> {
+    pub fn load() -> eyre::Result<Self> {
         let config_path = std::env::var("DAWDLE_HOME_CONFIG").unwrap_or_else(|_| {
             std::env::current_dir()
                 .expect("failed to get current dir")
@@ -82,6 +86,6 @@ impl Config {
         let config: Config = serde_json::from_str(&config)?;
 
         log::info!("loaded config from {}", config_path);
-        Ok(Arc::new(config))
+        Ok(config)
     }
 }

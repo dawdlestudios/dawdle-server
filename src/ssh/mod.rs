@@ -4,14 +4,14 @@ mod sftp;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::containers::Containers;
-use color_eyre::eyre::{Ok, Result};
+use eyre::{Ok, Result};
 use russh::server::Server;
 use russh_keys::key::KeyPair;
 use session::SshSession;
 
 #[derive(Clone)]
 pub struct SshServer {
-    state: crate::state::AppState,
+    state: crate::app::App,
     containers: Containers,
 }
 
@@ -45,7 +45,7 @@ impl SshServer {
         Ok(key)
     }
 
-    pub fn new(containers: Containers, state: crate::state::AppState) -> Self {
+    pub fn new(containers: Containers, state: crate::app::App) -> Self {
         Self { state, containers }
     }
 }
