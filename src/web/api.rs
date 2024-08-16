@@ -23,7 +23,6 @@ pub const USERNAME_COOKIE_MAX_AGE: Duration = Duration::days(7);
 pub const USERNAME_COOKIE_NAME: &str = "clientside_username";
 pub const SESSION_COOKIE_NAME: &str = "session_token";
 
-#[axum::debug_handler]
 pub async fn login(
     State(state): State<AppState>,
     jar: CookieJar,

@@ -1,9 +1,6 @@
 use color_eyre::eyre::{eyre, Result};
 use cuid2::cuid;
-use okv::types::serde::SerdeJson;
 use serde::{Deserialize, Serialize};
-
-use super::DB;
 
 #[derive(Serialize, Deserialize)]
 pub struct GuestbookEntry {
@@ -15,9 +12,7 @@ pub struct GuestbookEntry {
 }
 
 #[derive(Clone)]
-pub struct GuestbookState {
-    pub guestbook: DB<String, SerdeJson<GuestbookEntry>>,
-}
+pub struct GuestbookState {}
 
 impl GuestbookState {
     pub fn add_guestbook_entry(&self, entry: &str) -> Result<()> {

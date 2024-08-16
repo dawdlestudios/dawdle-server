@@ -3,7 +3,6 @@ use std::sync::Arc;
 use argon2::PasswordVerifier;
 use color_eyre::eyre::{bail, eyre, Result};
 use cuid2::cuid;
-use okv::types::serde::SerdeJson;
 use serde::{Deserialize, Serialize};
 
 use crate::utils::valid_public_key;

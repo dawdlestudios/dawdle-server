@@ -2,7 +2,7 @@ pub const DOCKER_IMAGE: &str = "ghcr.io/dawdlestudios/container";
 pub const DOCKER_TAG: &str = "latest";
 pub const DOCKER_CONTAINER_PREFIX: &str = "dawdle-home-";
 
-#[cfg(target_os = "darwin")]
+#[cfg(target_os = "macos")]
 pub const DOCKER_SOCKET_MACOS: &str = "unix:///Users/henry/.colima/default/docker.sock";
 
 pub const FILES_FOLDER: &str = ".files";

@@ -12,10 +12,6 @@ pub use users::*;
 
 use crate::config::{Config, DB_FOLDER};
 
-pub type DatabaseBackend = okv::backend::rocksdb::RocksDbOptimistic;
-pub type Env = okv::Env<DatabaseBackend>;
-pub type DB<K, V> = okv::Database<K, V, DatabaseBackend>;
-
 #[derive(Clone)]
 pub struct AppState {
     pub user: UserState,
@@ -28,13 +24,6 @@ pub struct AppState {
     pub chat: Arc<crate::chat::state::ChatState>,
 }
 
-// #[derive(Serialize, Deserialize)]
-// pub struct Project {
-//     username: String,
-//     path: String,
-//     name: String,
-// }
-
 type Username = String;
 type RelativeProjectPath = String;
 
@@ -42,11 +31,6 @@ type RelativeProjectPath = String;
 pub enum Website {
     User(Username), // always at ~/public
     Site(Username, RelativeProjectPath),
-}
-
-pub fn create_env() -> Result<Env> {
-    let env = Env::new(DatabaseBackend::new(DB_FOLDER)?);
-    Ok(env)
 }
 
 impl AppState {
