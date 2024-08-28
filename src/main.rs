@@ -2,6 +2,7 @@ mod app;
 mod chat;
 mod config;
 mod containers;
+mod ssg;
 mod ssh;
 mod utils;
 mod web;

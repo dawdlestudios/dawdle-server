@@ -6,11 +6,10 @@ use std::path::{Component, Path, PathBuf};
 
 use super::errors::APIError;
 use axum::http::{header, HeaderValue, Method, StatusCode, Uri};
-use axum::response::{Html, Response};
+use axum::response::Response;
 use axum::{body::Body, extract::Request, response::IntoResponse};
 use http_range_header::RangeUnsatisfiableError;
 use httpdate::HttpDate;
-use markdown::to_html_with_options;
 use mime_guess::Mime;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
@@ -99,9 +98,13 @@ pub fn create_dir_service(
                 Ok(None) => {
                     match open_markdown(path_to_file).await {
                         Ok(Some(file)) => {
-                            return match render_markdown(base_path, file).await {
+                            return match crate::ssg::render(base_path, file).await {
                                 Ok(res) => Ok(res),
-                                Err(err) => Ok(err.into_response()),
+                                Err(err) => Ok(APIError::custom(
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    &format!("failed to render markdown: {}", err),
+                                )
+                                .into_response()),
                             }
                         }
                         Ok(None) => {}
@@ -189,8 +192,9 @@ fn build_response(output: FileOutput) -> Response<Body> {
             // Example MIME type handling
             match mime_val.essence_str() {
                 "text/css" | "application/javascript" | "application/x-javascript" => {
-                    // Cache for 1 week
-                    builder = builder.header(header::CACHE_CONTROL, "max-age=604800");
+                    // users need instant changes when editing CSS or JS
+                    // should maybe be configurable (e.g for high-traffic sites)
+                    builder = builder.header(header::CACHE_CONTROL, "max-age=0, must-revalidate");
                 }
                 _ if mime_val.type_() == mime_guess::mime::TEXT
                     || mime_val.type_() == mime_guess::mime::APPLICATION =>
@@ -206,8 +210,8 @@ fn build_response(output: FileOutput) -> Response<Body> {
                     builder = builder.header(header::CACHE_CONTROL, "max-age=604800");
                 }
                 _ if mime_val.type_() == mime_guess::mime::FONT => {
-                    // Cache for 1 year
-                    builder = builder.header(header::CACHE_CONTROL, "max-age=31536000");
+                    // Cache for 1 week
+                    builder = builder.header(header::CACHE_CONTROL, "max-age=604800");
                 }
                 _ => {
                     // Default cache for 1 day
@@ -362,39 +366,6 @@ async fn open_markdown(path_to_file: PathBuf) -> Result<Option<tokio::fs::File>,
                 ))
             }
         })
-}
-
-async fn render_markdown(
-    base_path: PathBuf,
-    mut file: tokio::fs::File,
-) -> Result<Response<Body>, APIError> {
-    let mut buf = String::new();
-    file.read_to_string(&mut buf).await.map_err(|_| {
-        APIError::custom(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to read file"),
-        )
-    })?;
-
-    let html = to_html_with_options(
-        &buf,
-        &markdown::Options {
-            compile: markdown::CompileOptions {
-                ..Default::default()
-            },
-            parse: markdown::ParseOptions {
-                ..Default::default()
-            },
-        },
-    )
-    .map_err(|err| {
-        APIError::custom(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to render markdown: {}", err),
-        )
-    })?;
-
-    Ok(Html::from(html).into_response())
 }
 
 fn guess_mime(path: &PathBuf) -> Option<Mime> {
