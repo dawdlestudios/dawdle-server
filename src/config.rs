@@ -25,8 +25,6 @@ pub struct Config {
     pub ssh_interface: String,
     pub www_port: u16,
     pub www_interface: String,
-
-    pub initial_user: Option<(String, String)>,
 }
 
 fn default_base_dir() -> String {
@@ -76,14 +74,14 @@ impl Config {
         let config_path = std::env::var("DAWDLE_HOME_CONFIG").unwrap_or_else(|_| {
             std::env::current_dir()
                 .expect("failed to get current dir")
-                .join("./dawdle.config.json")
+                .join("./dawdle.config.toml")
                 .to_str()
                 .expect("failed to convert cwd to str")
                 .to_string()
         });
 
         let config = std::fs::read_to_string(config_path.clone())?;
-        let config: Config = serde_json::from_str(&config)?;
+        let config: Config = toml::from_str(&config)?;
 
         log::info!("loaded config from {}", config_path);
         Ok(config)

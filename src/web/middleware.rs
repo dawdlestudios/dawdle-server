@@ -11,33 +11,37 @@ use axum::{
 use axum_extra::extract::CookieJar;
 
 #[derive(Debug)]
-pub struct BasicAuth(Option<String>);
+pub struct WebdavAuth(Option<String>);
 
-impl BasicAuth {
+impl WebdavAuth {
     pub fn username(&self) -> Option<&str> {
         self.0.as_deref()
     }
 }
 
 #[async_trait]
-impl FromRequestParts<App> for BasicAuth {
+impl FromRequestParts<App> for WebdavAuth {
     type Rejection = Response;
 
-    async fn from_request_parts(parts: &mut Parts, _: &App) -> Result<Self, Self::Rejection> {
-        let Some(auth) = parts
+    async fn from_request_parts(parts: &mut Parts, state: &App) -> Result<Self, Self::Rejection> {
+        let authorization = parts
             .headers
             .get("Authorization")
             .map(|inner| inner.to_str())
-            .and_then(Result::ok)
-        else {
-            if parts.extensions.get::<RequiredSession>().is_some() {
-                return Ok(BasicAuth(None));
-            }
-            return Err(Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
-                .header("WWW-Authenticate", "Basic realm=\"webdav\"")
-                .body(Body::empty())
-                .unwrap());
+            .and_then(Result::ok);
+
+        let Some(auth) = authorization else {
+            return match OptionalSession::from_request_parts(parts, state)
+                .await?
+                .username()
+            {
+                Some(username) => Ok(WebdavAuth(Some(username.to_string()))),
+                None => Err(Response::builder()
+                    .status(StatusCode::UNAUTHORIZED)
+                    .header("WWW-Authenticate", "Basic realm=\"webdav\"")
+                    .body(Body::empty())
+                    .unwrap()),
+            };
         };
 
         let res = data_encoding::BASE64
@@ -50,7 +54,7 @@ impl FromRequestParts<App> for BasicAuth {
             .split_once(':')
             .ok_or(APIError::Unauthorized.into_response())?;
 
-        Ok(BasicAuth(Some(username.to_string())))
+        Ok(WebdavAuth(Some(username.to_string())))
     }
 }
 

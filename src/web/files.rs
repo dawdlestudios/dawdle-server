@@ -6,10 +6,11 @@ use std::path::{Component, Path, PathBuf};
 
 use super::errors::APIError;
 use axum::http::{header, HeaderValue, Method, StatusCode, Uri};
-use axum::response::Response;
+use axum::response::{Html, Response};
 use axum::{body::Body, extract::Request, response::IntoResponse};
 use http_range_header::RangeUnsatisfiableError;
 use httpdate::HttpDate;
+use markdown::to_html_with_options;
 use mime_guess::Mime;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
@@ -93,9 +94,20 @@ pub fn create_dir_service(
                 path_to_file
             };
 
-            let (mut file, mime) = match open_file(path_to_file).await {
+            let (mut file, mime) = match open_file(&path_to_file).await {
                 Ok(Some(file)) => file,
                 Ok(None) => {
+                    match open_markdown(path_to_file).await {
+                        Ok(Some(file)) => {
+                            return match render_markdown(base_path, file).await {
+                                Ok(res) => Ok(res),
+                                Err(err) => Ok(err.into_response()),
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(err) => return Ok(err.into_response()),
+                    }
+
                     let Ok(file) = tokio::fs::File::open(&fallback_file).await else {
                         return Ok(fallback.into_response());
                     };
@@ -312,22 +324,36 @@ fn check_modified_headers(
 
 // returns None if the fallback file doesn't exist
 async fn open_file(
-    path_to_file: PathBuf,
+    path_to_file: &PathBuf,
 ) -> Result<Option<(tokio::fs::File, Option<Mime>)>, APIError> {
-    let file = tokio::fs::File::open(&path_to_file).await;
-    match file {
+    match tokio::fs::File::open(&path_to_file).await {
         Ok(file) => Ok(Some((file, guess_mime(&path_to_file)))),
         Err(err) => {
-            if err.kind() == std::io::ErrorKind::NotFound {
-                // try .html if it's not at the end of the file already
-                if !path_to_file.ends_with(".html") {
-                    if let Ok(file) =
-                        tokio::fs::File::open(path_to_file.with_extension("html")).await
-                    {
-                        return Ok(Some((file, Some("text/html".parse().unwrap()))));
-                    }
-                }
+            if err.kind() != std::io::ErrorKind::NotFound {
+                return Err(APIError::custom(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("failed to open file: {}", err),
+                ));
+            }
 
+            // try .html if it's not at the end of the file already
+            if !path_to_file.ends_with(".html") {
+                if let Ok(file) = tokio::fs::File::open(path_to_file.with_extension("html")).await {
+                    return Ok(Some((file, Some("text/html".parse().unwrap()))));
+                }
+            }
+
+            return Ok(None);
+        }
+    }
+}
+
+async fn open_markdown(path_to_file: PathBuf) -> Result<Option<tokio::fs::File>, APIError> {
+    tokio::fs::File::open(path_to_file.with_extension("md"))
+        .await
+        .map(Some)
+        .or_else(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
                 Ok(None)
             } else {
                 Err(APIError::custom(
@@ -335,8 +361,40 @@ async fn open_file(
                     &format!("failed to open file: {}", err),
                 ))
             }
-        }
-    }
+        })
+}
+
+async fn render_markdown(
+    base_path: PathBuf,
+    mut file: tokio::fs::File,
+) -> Result<Response<Body>, APIError> {
+    let mut buf = String::new();
+    file.read_to_string(&mut buf).await.map_err(|_| {
+        APIError::custom(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to read file"),
+        )
+    })?;
+
+    let html = to_html_with_options(
+        &buf,
+        &markdown::Options {
+            compile: markdown::CompileOptions {
+                ..Default::default()
+            },
+            parse: markdown::ParseOptions {
+                ..Default::default()
+            },
+        },
+    )
+    .map_err(|err| {
+        APIError::custom(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to render markdown: {}", err),
+        )
+    })?;
+
+    Ok(Html::from(html).into_response())
 }
 
 fn guess_mime(path: &PathBuf) -> Option<Mime> {

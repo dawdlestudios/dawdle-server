@@ -7,24 +7,18 @@ use dav_server::{fakels::FakeLs, localfs::LocalFs, DavHandler};
 
 use crate::utils::is_valid_username;
 
-use super::{
-    errors::APIResult,
-    middleware::{BasicAuth, OptionalSession},
-};
+use super::{errors::APIResult, middleware::WebdavAuth};
 
 pub async fn handler(
-    session: OptionalSession,
-    basic_auth: BasicAuth,
+    auth: WebdavAuth,
     state: State<App>,
     req: Request,
 ) -> APIResult<impl IntoResponse> {
-    let username = if let Some(username) = basic_auth.username() {
-        username
-    } else if let Some(session) = session.username() {
-        session
-    } else {
-        return Err(crate::web::errors::APIError::Unauthorized);
-    };
+    let username = auth
+        .username()
+        .ok_or(crate::web::errors::APIError::Unauthorized)?;
+
+    log::info!("yay");
 
     if !is_valid_username(username) {
         return Err(crate::web::errors::APIError::Unauthorized);

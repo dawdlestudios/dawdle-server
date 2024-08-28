@@ -23,9 +23,8 @@ async fn main() -> eyre::Result<()> {
     let containers = Containers::new()?;
     containers.init().await?;
 
-    if let Some((username, password)) = &app.config.initial_user {
-        let _ = app.users.create(username, &password, Some("admin")).await;
-    }
+    #[cfg(debug_assertions)]
+    let _ = app.users.create("admin", "admin", Some("admin")).await;
 
     let api_addr = SocketAddr::new(
         IpAddr::from_str(&app.config.www_interface)?,

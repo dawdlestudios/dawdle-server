@@ -12,7 +12,7 @@ pub struct AppSessions {
 #[derive(Debug, Clone)]
 pub struct Session {
     pub username: String,
-    pub created: time::OffsetDateTime,
+    pub created_at: time::OffsetDateTime,
     pub last_active: time::OffsetDateTime,
     pub logged_out: bool,
 }
@@ -48,15 +48,22 @@ impl AppSessions {
     pub async fn verify(&self, session_token: &str) -> Result<Option<Session>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT * FROM sessions WHERE session_token = ?")
+            .prepare(
+                "SELECT 
+                username, 
+                created_at, 
+                last_active, 
+                logged_out
+             FROM sessions WHERE session_token = ?",
+            )
             .await?;
 
         let row = stmt.query_row([session_token]).await?;
         let session = Session {
-            username: row.get(1)?,
-            created: to_time(row.get(2)?)?,
-            last_active: to_time(row.get(3)?)?,
-            logged_out: row.get(4)?,
+            username: row.get(0)?,
+            created_at: to_time(row.get(1)?)?,
+            last_active: to_time(row.get(2)?)?,
+            logged_out: row.get(3)?,
         };
 
         if session.logged_out {
