@@ -30,7 +30,10 @@ impl AppApplications {
     }
 
     pub async fn all(&self) -> Result<Vec<Application>> {
-        let mut stmt = self.conn.prepare("SELECT * FROM applications").await?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT application_id, requested_username, email, about, approved, claimed, claim_token, created_at FROM applications")
+            .await?;
         let rows = stmt.query(()).await?;
 
         let applications = rows.into_stream().map(|row| {
@@ -40,10 +43,10 @@ impl AppApplications {
                 username: row.get(1)?,
                 email: row.get(2)?,
                 about: row.get(3)?,
-                date: to_time(row.get(4)?)?,
-                approved: row.get(5)?,
-                claimed: row.get(6)?,
-                claim_token: row.get(7)?,
+                approved: row.get(4)?,
+                claimed: row.get(5)?,
+                claim_token: row.get(6)?,
+                date: to_time(row.get(7)?)?,
             })
         });
 
@@ -65,15 +68,17 @@ impl AppApplications {
     pub async fn apply(&self, username: &str, email: &str, about: &str) -> Result<()> {
         let username = username.to_lowercase();
         if !is_valid_username(&username) {
+            log::error!("invalid username: {}", username);
             bail!("invalid username");
         }
-
-        self.conn
+        let err = self
+            .conn
             .execute(
-                "INSERT INTO applications (id, username, email, about) VALUES (?, ?, ?, ?)",
+                "INSERT INTO applications (application_id, requested_username, email, about) VALUES (?, ?, ?, ?)",
                 params![cuid(), username, email, about],
             )
             .await?;
+
         Ok(())
     }
 

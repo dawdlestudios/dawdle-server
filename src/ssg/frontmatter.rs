@@ -95,6 +95,12 @@ impl FrontMatter {
     pub fn html_head(&self) -> String {
         let mut head = String::new();
 
+        if let Some(theme) = &self.theme {
+            if let Some(url) = super::themes::THEMES.iter().find(|(name, _)| name == theme) {
+                head.push_str(&format!("<link rel=\"stylesheet\" href=\"{}\">\n", url.1));
+            }
+        }
+
         if let Some(css) = &self.css {
             for c in css.as_list() {
                 head.push_str(&format!("<link rel=\"stylesheet\" href=\"{}\">\n", c));
@@ -104,12 +110,6 @@ impl FrontMatter {
         if let Some(heads) = &self.head {
             for h in heads.as_list() {
                 head.push_str(h);
-            }
-        }
-
-        if let Some(theme) = &self.theme {
-            if let Some(url) = super::themes::THEMES.iter().find(|(name, _)| name == theme) {
-                head.push_str(&format!("<link rel=\"stylesheet\" href=\"{}\">\n", url.1));
             }
         }
 

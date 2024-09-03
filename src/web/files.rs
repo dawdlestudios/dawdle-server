@@ -194,7 +194,7 @@ fn build_response(output: FileOutput) -> Response<Body> {
                 "text/css" | "application/javascript" | "application/x-javascript" => {
                     // users need instant changes when editing CSS or JS
                     // should maybe be configurable (e.g for high-traffic sites)
-                    builder = builder.header(header::CACHE_CONTROL, "max-age=0, must-revalidate");
+                    builder = builder.header(header::CACHE_CONTROL, "stale-while-revalidate=0");
                 }
                 _ if mime_val.type_() == mime_guess::mime::TEXT
                     || mime_val.type_() == mime_guess::mime::APPLICATION =>

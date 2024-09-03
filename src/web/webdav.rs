@@ -18,8 +18,6 @@ pub async fn handler(
         .username()
         .ok_or(crate::web::errors::APIError::Unauthorized)?;
 
-    log::info!("yay");
-
     if !is_valid_username(username) {
         return Err(crate::web::errors::APIError::Unauthorized);
     }

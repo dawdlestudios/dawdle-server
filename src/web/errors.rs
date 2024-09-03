@@ -51,9 +51,13 @@ impl IntoResponse for APIError {
             APIError::BadRequest(message) => {
                 (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response()
             }
-            APIError::InternalServerError => {
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({}))).into_response()
-            }
+            APIError::InternalServerError => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "internal server error"
+                })),
+            )
+                .into_response(),
             APIError::Custom(status, message) => {
                 (status, Json(json!({ "error": message }))).into_response()
             }

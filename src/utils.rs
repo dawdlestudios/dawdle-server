@@ -11,7 +11,7 @@ pub fn is_valid_username(username: &str) -> bool {
         && username.len() < 32
         && username
             .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 
 pub fn is_valid_project_path(path: &str) -> bool {
