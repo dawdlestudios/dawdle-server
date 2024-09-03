@@ -41,7 +41,7 @@ pub fn create_dir_service(
         async move {
             if req.method() != Method::GET && req.method() != Method::HEAD {
                 return Ok(
-                    APIError::custom(StatusCode::METHOD_NOT_ALLOWED, "Method not allowed")
+                    APIError::new(StatusCode::METHOD_NOT_ALLOWED, "Method not allowed")
                         .into_response(),
                 );
             }
@@ -60,7 +60,7 @@ pub fn create_dir_service(
             let path_to_file = match build_and_validate_path(&base_path, req.uri().path()) {
                 None => {
                     return Ok(
-                        APIError::custom(StatusCode::BAD_REQUEST, "invalid path").into_response()
+                        APIError::new(StatusCode::BAD_REQUEST, "invalid path").into_response()
                     )
                 }
                 Some(path) => path,
@@ -84,7 +84,10 @@ pub fn create_dir_service(
                 .and_then(to_http_date);
 
             if req.method() == Method::HEAD {
-                return Ok(APIError::error("not supported yet").into_response());
+                return Ok(
+                    APIError::new(StatusCode::INTERNAL_SERVER_ERROR, "not supported yet")
+                        .into_response(),
+                );
             }
 
             let path_to_file = if is_dir(&path_to_file).await {
@@ -100,7 +103,7 @@ pub fn create_dir_service(
                         Ok(Some(file)) => {
                             return match crate::ssg::render(base_path, file).await {
                                 Ok(res) => Ok(res),
-                                Err(err) => Ok(APIError::custom(
+                                Err(err) => Ok(APIError::new(
                                     StatusCode::INTERNAL_SERVER_ERROR,
                                     &format!("failed to render markdown: {}", err),
                                 )
@@ -121,7 +124,11 @@ pub fn create_dir_service(
 
             let meta = match file.metadata().await {
                 Ok(meta) => meta,
-                Err(_) => return Ok(APIError::bad_request().into_response()),
+                Err(_) => {
+                    return Ok(
+                        APIError::new(StatusCode::BAD_REQUEST, "invalid file").into_response()
+                    )
+                }
             };
 
             if !meta.is_file() || meta.is_symlink() {
@@ -145,7 +152,9 @@ pub fn create_dir_service(
                         .await
                         .is_err()
                 {
-                    return Ok(APIError::error("failed to seek").into_response());
+                    return Ok(
+                        APIError::new(StatusCode::BAD_REQUEST, "invalid range").into_response()
+                    );
                 }
             }
 
@@ -226,12 +235,19 @@ fn build_response(output: FileOutput) -> Response<Body> {
     match output.maybe_range {
         Some(Ok(ranges)) => {
             let Some(range) = ranges.first() else {
-                return APIError::error("No range found after parsing range header")
-                    .into_response();
+                return APIError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "No range found after parsing range header",
+                )
+                .into_response();
             };
 
             if ranges.len() > 1 {
-                return APIError::error("multipart ranges not supported yet").into_response();
+                return APIError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "multipart ranges not supported yet",
+                )
+                .into_response();
             }
 
             let body = if let Some(file) = output.file {
@@ -334,7 +350,7 @@ async fn open_file(
         Ok(file) => Ok(Some((file, guess_mime(&path_to_file)))),
         Err(err) => {
             if err.kind() != std::io::ErrorKind::NotFound {
-                return Err(APIError::custom(
+                return Err(APIError::new(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     &format!("failed to open file: {}", err),
                 ));
@@ -360,7 +376,7 @@ async fn open_markdown(path_to_file: PathBuf) -> Result<Option<tokio::fs::File>,
             if err.kind() == std::io::ErrorKind::NotFound {
                 Ok(None)
             } else {
-                Err(APIError::custom(
+                Err(APIError::new(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     &format!("failed to open file: {}", err),
                 ))

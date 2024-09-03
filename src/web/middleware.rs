@@ -19,6 +19,10 @@ impl WebdavAuth {
     }
 }
 
+pub fn unauthorized(message: &str) -> Response {
+    APIError::new(StatusCode::UNAUTHORIZED, message).into_response()
+}
+
 #[async_trait]
 impl FromRequestParts<App> for WebdavAuth {
     type Rejection = Response;
@@ -47,12 +51,12 @@ impl FromRequestParts<App> for WebdavAuth {
         let res = data_encoding::BASE64
             .decode(auth.strip_prefix("Basic ").unwrap_or_default().as_bytes())
             .map(String::from_utf8)
-            .map_err(|_| APIError::Unauthorized.into_response())?
-            .map_err(|_| APIError::Unauthorized.into_response())?;
+            .map_err(|_| unauthorized("invalid base64"))?
+            .map_err(|_| unauthorized("invalid base64"))?;
 
         let (username, _password) = res
             .split_once(':')
-            .ok_or(APIError::Unauthorized.into_response())?;
+            .ok_or_else(|| unauthorized("invalid auth header"))?;
 
         Ok(WebdavAuth(Some(username.to_string())))
     }
@@ -71,11 +75,11 @@ impl FromRequestParts<App> for Admin {
             .users
             .get(session.username())
             .await
-            .map_err(|_| APIError::Unauthorized.into_response())?
-            .ok_or_else(|| APIError::Unauthorized.into_response())?;
+            .map_err(|_| unauthorized("user not found"))?
+            .ok_or_else(|| unauthorized("user not found"))?;
 
         if user.role.as_deref() != Some("admin") {
-            return Err(APIError::Unauthorized.into_response());
+            return Err(unauthorized("not an admin"));
         }
 
         Ok(Admin(user))
@@ -98,10 +102,10 @@ impl FromRequestParts<App> for OptionalSession {
     async fn from_request_parts(parts: &mut Parts, state: &App) -> Result<Self, Self::Rejection> {
         use axum::RequestPartsExt;
 
-        let jar = parts.extract::<CookieJar>().await.map_err(|_| {
-            APIError::Custom(StatusCode::UNAUTHORIZED, "no session cookie".to_string())
-                .into_response()
-        })?;
+        let jar = parts
+            .extract::<CookieJar>()
+            .await
+            .map_err(|_| unauthorized("no session cookie"))?;
 
         if let Some(session_token) = jar.get(SESSION_COOKIE_NAME).map(|c| c.value().to_string()) {
             if let Ok(session) = state.sessions.verify(&session_token).await {
@@ -131,7 +135,7 @@ impl FromRequestParts<App> for RequiredSession {
     async fn from_request_parts(parts: &mut Parts, _state: &App) -> Result<Self, Self::Rejection> {
         match OptionalSession::from_request_parts(parts, _state).await?.0 {
             Some(session) => Ok(RequiredSession(session)),
-            None => Err(APIError::Unauthorized.into_response()),
+            None => Err(unauthorized("no session")),
         }
     }
 }

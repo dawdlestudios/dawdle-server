@@ -11,7 +11,7 @@ use serde_json::json;
 use time::Duration;
 
 use super::{
-    errors::{APIError, APIResult},
+    errors::{APIError, APIResult, ApiErrorExt},
     middleware::RequiredSession,
 };
 
@@ -38,30 +38,24 @@ pub async fn login(
         .users
         .verify_password(&username, &password)
         .await
-        .map_err(|e| {
-            log::error!("error verifying password: {:?}", e);
-            APIError::Unauthorized
-        })?;
+        .api_unauthorized()?;
 
     if !valid {
-        return Err(APIError::custom(
-            StatusCode::UNAUTHORIZED,
-            "invalid password",
-        ));
+        return Err(APIError::new(StatusCode::UNAUTHORIZED, "invalid password"));
     };
 
     let user = state
         .users
         .get(&username)
         .await
-        .map_err(|_| APIError::InternalServerError)?
-        .ok_or(APIError::Unauthorized)?;
+        .api_internal_error()?
+        .api_unauthorized()?;
 
     let session = state
         .sessions
         .create(&username)
         .await
-        .map_err(|_| APIError::InternalServerError)?;
+        .api_internal_error()?;
 
     let session_cookie = Cookie::build((SESSION_COOKIE_NAME, session))
         .max_age(SESSION_COOKIE_MAX_AGE)
@@ -145,7 +139,7 @@ pub async fn get_me(
         .users
         .get_public_keys(session.username())
         .await
-        .map_err(|_| APIError::InternalServerError)?;
+        .api_internal_error()?;
 
     Ok((Json(MeResponse {
         username: session.username().to_string(),
@@ -168,20 +162,14 @@ pub async fn add_public_key(
     let AddPublicKeyRequest { name, key } = body.0;
 
     if !valid_public_key(&key) {
-        return Err(APIError::custom(
-            StatusCode::BAD_REQUEST,
-            "invalid public key",
-        ));
+        return Err(APIError::new(StatusCode::BAD_REQUEST, "invalid public key"));
     }
 
     state
         .users
         .add_public_key(session.username(), &name, &key)
         .await
-        .map_err(|_| {
-            log::error!("error adding public key");
-            APIError::InternalServerError
-        })?;
+        .api_internal_error()?;
 
     Ok((Json(json!({ "success": true }))).into_response())
 }
@@ -201,7 +189,7 @@ pub async fn remove_public_key(
         .users
         .remove_public_key(session.username(), &name)
         .await
-        .map_err(|_| APIError::custom(StatusCode::BAD_REQUEST, "key name does not exist"))?;
+        .map_err(|_| APIError::new(StatusCode::BAD_REQUEST, "key name does not exist"))?;
 
     Ok((Json(json!({ "success": true }))).into_response())
 }
@@ -227,7 +215,7 @@ pub async fn apply(
             &application.about,
         )
         .await
-        .map_err(|_| APIError::InternalServerError)?;
+        .api_internal_error()?;
 
     Ok((Json(json!({ "success": true }))).into_response())
 }
@@ -249,10 +237,7 @@ pub async fn claim(
         .applications
         .claim(&token.token, &token.username, &token.password)
         .await
-        .map_err(|e| {
-            log::error!("error claiming application: {:?}", e);
-            APIError::InternalServerError
-        })?;
+        .api_internal_error()?;
 
     state.set_site(token.username.clone(), Website::User(token.username));
     Ok((Json(json!({ "success": true }))).into_response())
@@ -275,13 +260,13 @@ pub async fn change_password(
         .users
         .verify_password(session.username(), &password.old_password)
         .await
-        .map_err(|_| APIError::InternalServerError)?;
+        .api_internal_error()?;
 
     state
         .users
         .update_password(session.username(), &password.new_password)
         .await
-        .map_err(|_| APIError::InternalServerError)?;
+        .api_internal_error()?;
 
     Ok((Json(json!({ "success": true }))).into_response())
 }

@@ -2,65 +2,96 @@ use axum::{
     body::Body,
     http::StatusCode,
     response::{Html, IntoResponse},
-    Json,
 };
 use eyre::Result;
 use serde_json::json;
 
 pub type APIResult<T> = Result<T, APIError>;
 
+pub trait ApiErrorExt<T> {
+    fn api_error(self, status: StatusCode, message: Option<&str>) -> Result<T, APIError>;
+    fn api_internal_error(self) -> Result<T, APIError>
+    where
+        Self: Sized,
+    {
+        self.api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Some("internal server error"),
+        )
+    }
+    fn api_not_found(self) -> Result<T, APIError>
+    where
+        Self: Sized,
+    {
+        self.api_error(StatusCode::NOT_FOUND, None)
+    }
+    fn api_bad_request(self) -> Result<T, APIError>
+    where
+        Self: Sized,
+    {
+        self.api_error(StatusCode::BAD_REQUEST, None)
+    }
+    fn api_unauthorized(self) -> Result<T, APIError>
+    where
+        Self: Sized,
+    {
+        self.api_error(StatusCode::UNAUTHORIZED, None)
+    }
+}
+
+impl<T, E: Into<eyre::Error>> ApiErrorExt<T> for Result<T, E> {
+    fn api_error(self, status: StatusCode, message: Option<&str>) -> Result<T, APIError> {
+        self.map_err(|e| {
+            let message = message.unwrap_or(status.canonical_reason().unwrap_or("unknown"));
+            log::warn!("api error: {message}: {}", e.into());
+            APIError {
+                0: status,
+                1: message.to_string(),
+            }
+        })
+    }
+}
+
+impl<T> ApiErrorExt<T> for Option<T> {
+    fn api_error(self, status: StatusCode, message: Option<&str>) -> Result<T, APIError> {
+        self.ok_or_else(|| {
+            let message = message.unwrap_or(status.canonical_reason().unwrap_or("unknown"));
+            log::warn!("api error: {message}");
+            APIError {
+                0: status,
+                1: message.to_string(),
+            }
+        })
+    }
+}
+
 pub const NOT_FOUND: (StatusCode, Html<&str>) =
     (StatusCode::NOT_FOUND, Html(include_str!("./404.html")));
 
-pub enum APIError {
-    NotFound,
-    InternalServerError,
-
-    Unauthorized,
-    BadRequest(String),
-    Custom(StatusCode, String),
-}
+pub struct APIError(StatusCode, String);
 
 impl APIError {
-    pub fn custom(status: StatusCode, message: &str) -> Self {
-        APIError::Custom(status, message.to_string())
+    pub fn new(status: StatusCode, message: &str) -> Self {
+        Self(status, message.to_string())
     }
-    pub fn bad_request() -> Self {
-        APIError::BadRequest("bad request".to_string())
-    }
-    pub fn error(message: &str) -> Self {
-        APIError::Custom(StatusCode::INTERNAL_SERVER_ERROR, message.to_string())
+}
+
+impl Default for APIError {
+    fn default() -> Self {
+        Self(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal server error".to_string(),
+        )
     }
 }
 
 impl IntoResponse for APIError {
     fn into_response(self) -> axum::http::Response<Body> {
-        match self {
-            APIError::Unauthorized => (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": "unauthorized" })),
-            )
-                .into_response(),
-            APIError::NotFound => (
-                StatusCode::NOT_FOUND,
-                Json(json!({
-                    "error": "not found",
-                })),
-            )
-                .into_response(),
-            APIError::BadRequest(message) => {
-                (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response()
-            }
-            APIError::InternalServerError => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "error": "internal server error"
-                })),
-            )
-                .into_response(),
-            APIError::Custom(status, message) => {
-                (status, Json(json!({ "error": message }))).into_response()
-            }
-        }
+        let body = json!({
+            "status": self.0.as_u16(),
+            "message": self.1
+        })
+        .to_string();
+        (self.0, body).into_response()
     }
 }

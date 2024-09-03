@@ -6,12 +6,13 @@ use axum::{
     body::Body,
     extract::Request,
     handler::HandlerWithoutStateExt,
-    http::{header, HeaderValue},
+    http::{header, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::*,
     Router,
 };
 
+use errors::ApiErrorExt;
 use eyre::Result;
 use std::net::SocketAddr;
 use tower::{Service, ServiceBuilder, ServiceExt};
@@ -34,7 +35,18 @@ pub async fn run(state: App, addr: SocketAddr) -> Result<()> {
     let admin_router = Router::new()
         .route("/", post(api_admin::is_admin))
         .route("/applications", get(api_admin::get_applications))
-        .route("/applications", post(api_admin::approve_application))
+        .route(
+            "/applications/approve",
+            post(api_admin::approve_application),
+        )
+        .route(
+            "/applications/unapprove",
+            post(api_admin::unapprove_application),
+        )
+        .route(
+            "/applications/username",
+            post(api_admin::update_application_username),
+        )
         .route("/applications", delete(api_admin::delete_application))
         .route("/users", get(api_admin::get_users))
         .route("/user/{username}", delete(api_admin::delete_user));
@@ -61,7 +73,9 @@ pub async fn run(state: App, addr: SocketAddr) -> Result<()> {
                 .route("/apply", post(api::apply))
                 .route("/claim", post(api::claim))
                 .route("/sites", get(api::get_sites))
-                .fallback(|| async { APIError::NotFound.into_response() }),
+                .fallback(|| async {
+                    APIError::new(StatusCode::NOT_FOUND, "not found").into_response()
+                }),
         )
         .route("/api/webdav", any(webdav::handler))
         .route("/api/webdav/", any(webdav::handler))
@@ -104,9 +118,9 @@ pub async fn run(state: App, addr: SocketAddr) -> Result<()> {
         let hostname_header = request
             .headers()
             .get("HOST")
-            .ok_or_else(|| APIError::BadRequest("no hostname".to_string()))?
+            .api_error(StatusCode::BAD_REQUEST, Some("no hostname"))?
             .to_str()
-            .map_err(|_| APIError::BadRequest("invalid hostname".to_string()))?;
+            .api_error(StatusCode::BAD_REQUEST, Some("invalid hostname"))?;
 
         let site = match select_service(hostname_header) {
             Ok(SelectedService::DawdleSpace) => {
@@ -123,21 +137,13 @@ pub async fn run(state: App, addr: SocketAddr) -> Result<()> {
 
         match site.value() {
             Website::User(username) => {
-                let path = state
-                    .config
-                    .user_public_path(username)
-                    .ok_or(APIError::NotFound)?;
-
+                let path = state.config.user_public_path(username).api_not_found()?;
                 let service = create_dir_service(path.clone(), path.join("404.html"), NOT_FOUND);
                 let res = service.oneshot(request).await;
                 APIResult::Ok(res.into_response())
             }
             Website::Site(username, path) => {
-                let path = state
-                    .config
-                    .project_path(username, path)
-                    .ok_or(APIError::NotFound)?;
-
+                let path = state.config.project_path(username, path).api_not_found()?;
                 let service = create_dir_service(path.clone(), path.join("404.html"), NOT_FOUND);
                 let res = service.oneshot(request).await;
 
@@ -167,11 +173,12 @@ fn select_service(hostname_header: &str) -> APIResult<SelectedService> {
         (hostname_header, "80")
     };
 
-    let domain = addr::parse_domain_name(hostname)
-        .map_err(|_| APIError::BadRequest("invalid hostname".to_string()))?;
+    let Ok(domain) = addr::parse_domain_name(hostname) else {
+        return Err(APIError::new(StatusCode::BAD_REQUEST, "invalid hostname"));
+    };
 
     if !cfg!(debug_assertions) && port != "80" {
-        return APIResult::Err(APIError::BadRequest("insecure connection".to_string()));
+        return Err(APIError::new(StatusCode::BAD_REQUEST, "invalid port"));
     }
 
     if is_api(domain) {
@@ -183,7 +190,7 @@ fn select_service(hostname_header: &str) -> APIResult<SelectedService> {
             let subdomain = domain
                 .prefix()
                 .map(|s| s.to_string())
-                .ok_or_else(|| APIError::BadRequest("invalid hostname".to_string()))?;
+                .api_error(StatusCode::BAD_REQUEST, Some("invalid hostname"))?;
             SelectedService::Subdomain(subdomain)
         }
         false => SelectedService::CustomDomain(hostname.to_string()),

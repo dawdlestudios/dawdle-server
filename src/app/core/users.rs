@@ -14,6 +14,7 @@ pub struct AppUsers {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub username: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: time::OffsetDateTime,
     pub role: Option<String>,
 }
@@ -115,7 +116,7 @@ impl AppUsers {
     pub async fn get_public_keys(&self, username: &str) -> Result<Vec<(String, String)>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT public_key, name FROM public_keys WHERE username = ?")
+            .prepare("SELECT public_key, name FROM user_public_keys WHERE username = ?")
             .await?;
 
         let rows = stmt.query([username]).await?;
@@ -131,7 +132,7 @@ impl AppUsers {
     pub async fn add_public_key(&self, username: &str, public_key: &str, name: &str) -> Result<()> {
         self.conn
             .execute(
-                "INSERT INTO public_keys (username, name, public_key) VALUES (?, ?, ?)",
+                "INSERT INTO user_public_keys (username, name, public_key) VALUES (?, ?, ?)",
                 [username, name, public_key],
             )
             .await?;
@@ -142,7 +143,7 @@ impl AppUsers {
     pub async fn remove_public_key(&self, username: &str, public_key: &str) -> Result<()> {
         self.conn
             .execute(
-                "DELETE FROM public_keys WHERE username = ? AND public_key = ?",
+                "DELETE FROM user_public_keys WHERE username = ? AND public_key = ?",
                 [username, public_key],
             )
             .await?;

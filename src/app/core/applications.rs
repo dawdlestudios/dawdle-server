@@ -56,13 +56,51 @@ impl AppApplications {
 
     pub async fn approve(&self, id: &str) -> Result<()> {
         let token = cuid();
+
         self.conn
             .execute(
-                "UPDATE applications SET approved = 1, claim_token = ? WHERE id = ?",
+                "UPDATE applications SET approved = 1, claim_token = ? WHERE application_id = ?",
                 params![token, id],
             )
             .await?;
 
+        Ok(())
+    }
+
+    pub async fn unapprove(&self, id: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE applications SET approved = 0 WHERE application_id = ? AND claimed = 0",
+                params![id],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_username(&self, id: &str, username: &str) -> Result<()> {
+        let username = username.to_lowercase();
+        if !is_valid_username(&username) {
+            bail!("invalid username");
+        }
+
+        self.conn
+            .execute(
+                "UPDATE applications SET requested_username = ? WHERE application_id = ? AND claimed = 0",
+                params![username, id],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete(&self, id: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "DELETE FROM applications WHERE application_id = ?",
+                params![id],
+            )
+            .await?;
         Ok(())
     }
 
@@ -72,7 +110,8 @@ impl AppApplications {
             log::error!("invalid username: {}", username);
             bail!("invalid username");
         }
-        let err = self
+
+        self
             .conn
             .execute(
                 "INSERT INTO applications (application_id, requested_username, email, about) VALUES (?, ?, ?, ?)",
@@ -118,7 +157,7 @@ impl AppApplications {
         }
 
         tx.execute(
-            "UPDATE applications SET claimed = 1 WHERE id = ?",
+            "UPDATE applications SET claimed = 1 WHERE application_id = ?",
             params![app_id],
         )
         .await?;
@@ -131,13 +170,6 @@ impl AppApplications {
 
         self.create_home(&username)?;
         tx.commit().await?;
-        Ok(())
-    }
-
-    pub async fn delete(&self, id: &str) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM applications WHERE id = ?", params![id])
-            .await?;
         Ok(())
     }
 

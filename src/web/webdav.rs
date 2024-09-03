@@ -1,25 +1,26 @@
 use crate::app::App;
 use axum::{
     extract::{Request, State},
+    http::StatusCode,
     response::IntoResponse,
 };
 use dav_server::{fakels::FakeLs, localfs::LocalFs, DavHandler};
 
 use crate::utils::is_valid_username;
 
-use super::{errors::APIResult, middleware::WebdavAuth};
+use super::{
+    errors::{APIError, APIResult, ApiErrorExt},
+    middleware::WebdavAuth,
+};
 
 pub async fn handler(
     auth: WebdavAuth,
     state: State<App>,
     req: Request,
 ) -> APIResult<impl IntoResponse> {
-    let username = auth
-        .username()
-        .ok_or(crate::web::errors::APIError::Unauthorized)?;
-
+    let username = auth.username().api_error(StatusCode::UNAUTHORIZED, None)?;
     if !is_valid_username(username) {
-        return Err(crate::web::errors::APIError::Unauthorized);
+        return Err(APIError::new(StatusCode::BAD_REQUEST, "invalid username"));
     }
 
     let path = std::path::Path::new(&state.config.base_dir)
