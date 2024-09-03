@@ -2,7 +2,9 @@ create table users (
     username text primary key not null,
     password_hash text not null,
     role text,
-    created_at integer not null default (strftime('%s', 'now'))
+    created_at integer not null default (strftime('%s', 'now')),
+
+    minecraft_uuid text
 );
 
 create table user_public_keys (

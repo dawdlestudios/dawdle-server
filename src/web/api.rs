@@ -24,6 +24,7 @@ pub struct LoginRequest {
 pub const SESSION_COOKIE_MAX_AGE: Duration = Duration::days(7);
 pub const USERNAME_COOKIE_MAX_AGE: Duration = Duration::days(7);
 pub const USERNAME_COOKIE_NAME: &str = "clientside_username";
+pub const ROLE_COOKIE_NAME: &str = "clientside_role";
 pub const SESSION_COOKIE_NAME: &str = "session_token";
 
 pub async fn login(
@@ -49,6 +50,13 @@ pub async fn login(
         ));
     };
 
+    let user = state
+        .users
+        .get(&username)
+        .await
+        .map_err(|_| APIError::InternalServerError)?
+        .ok_or(APIError::Unauthorized)?;
+
     let session = state
         .sessions
         .create(&username)
@@ -71,9 +79,22 @@ pub async fn login(
         .same_site(SameSite::Strict)
         .build();
 
+    let mut cookies = jar.add(session_cookie).add(username_cookie);
+
+    if let Some(role) = user.role {
+        let role_cookie = Cookie::build((ROLE_COOKIE_NAME, role.to_string()))
+            .max_age(USERNAME_COOKIE_MAX_AGE)
+            .http_only(false)
+            .path("/")
+            .secure(!cfg!(debug_assertions))
+            .same_site(SameSite::Strict)
+            .build();
+        cookies = cookies.add(role_cookie);
+    }
+
     Ok((
         StatusCode::OK,
-        jar.add(session_cookie).add(username_cookie),
+        cookies,
         Json(json!({
             "success": true,
         })),
@@ -90,7 +111,8 @@ pub async fn logout(State(state): State<App>, jar: CookieJar) -> APIResult<impl 
 
     let remove_cookies = jar
         .remove(Cookie::from(SESSION_COOKIE_NAME))
-        .remove(Cookie::build((USERNAME_COOKIE_NAME, "")).path("/").build());
+        .remove(Cookie::build((USERNAME_COOKIE_NAME, "")).path("/").build())
+        .remove(Cookie::build((ROLE_COOKIE_NAME, "")).path("/").build());
 
     Ok((
         StatusCode::OK,

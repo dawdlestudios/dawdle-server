@@ -18,6 +18,7 @@ pub struct Application {
     pub username: String,
     pub email: String,
     pub about: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub date: time::OffsetDateTime,
     pub approved: bool,
     pub claimed: bool,
