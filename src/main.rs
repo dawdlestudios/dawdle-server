@@ -2,6 +2,7 @@ mod app;
 mod chat;
 mod config;
 mod containers;
+mod minecraft;
 mod ssg;
 mod ssh;
 mod utils;
@@ -19,24 +20,24 @@ async fn main() -> eyre::Result<()> {
     env_logger::builder().filter_level(LevelFilter::Info).init();
 
     let config = config::Config::load()?;
-    let app = app::App::new(config).await?;
+    let app = app::App::new(config.clone()).await?;
 
-    let containers = Containers::new()?;
+    let containers = Containers::new(config)?;
     containers.init().await?;
 
     #[cfg(debug_assertions)]
     let _ = app.users.create("admin", "admin", Some("admin")).await;
 
     let api_addr = SocketAddr::new(
-        IpAddr::from_str(&app.config.www_interface)?,
-        app.config.www_port,
+        IpAddr::from_str(&app.config.web.interface)?,
+        app.config.web.port,
     );
 
     let api_server = web::run(app.clone(), api_addr);
 
     let ssh_addr = SocketAddr::new(
-        IpAddr::from_str(&app.config.ssh_interface)?,
-        app.config.ssh_port,
+        IpAddr::from_str(&app.config.ssh.interface)?,
+        app.config.ssh.port,
     );
 
     let ssh_server = SshServer::new(containers, app);

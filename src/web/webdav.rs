@@ -23,10 +23,10 @@ pub async fn handler(
         return Err(APIError::new(StatusCode::BAD_REQUEST, "invalid username"));
     }
 
-    let path = std::path::Path::new(&state.config.base_dir)
-        .join(crate::config::FILES_FOLDER)
-        .join(crate::config::FILES_HOME)
-        .join(username);
+    let path = state
+        .config
+        .user_home(username)
+        .api_error(StatusCode::NOT_FOUND, None)?;
 
     let dav_server = DavHandler::builder()
         .strip_prefix("/api/webdav")

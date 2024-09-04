@@ -1,5 +1,5 @@
 use cuid2::cuid;
-use eyre::{bail, Ok, Result};
+use eyre::{bail, Ok, OptionExt, Result};
 use futures::{StreamExt, TryStreamExt};
 use libsql::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -175,14 +175,11 @@ impl AppApplications {
 
     fn create_home(&self, username: &str) -> Result<()> {
         // copy the default home folder to the user's new home folder
-        let default_home = std::path::Path::new(&self.config.base_dir)
-            .join(crate::config::FILES_FOLDER)
-            .join(crate::config::FILES_DEFAULT_HOME);
-
-        let user_home = std::path::Path::new(&self.config.base_dir)
-            .join(crate::config::FILES_FOLDER)
-            .join(crate::config::FILES_HOME)
-            .join(username);
+        let default_home = self.config.default_user_home();
+        let user_home = self
+            .config
+            .user_home(username)
+            .ok_or_eyre("invalid username")?;
 
         if !user_home.exists() {
             std::fs::create_dir_all(&user_home)?;

@@ -51,10 +51,10 @@ pub async fn run(state: App, addr: SocketAddr) -> Result<()> {
         .route("/users", get(api_admin::get_users))
         .route("/user/{username}", delete(api_admin::delete_user));
 
-    let www_path = std::path::Path::new(&state.config.base_dir)
-        .join(crate::config::FILES_FOLDER)
-        .join(crate::config::FILES_HOME)
-        .join("henry")
+    let www_path = state
+        .config
+        .user_home("henry")
+        .unwrap()
         .join("sites")
         .join("dawdle.space");
 

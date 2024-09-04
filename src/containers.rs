@@ -8,11 +8,12 @@ use futures::Stream;
 use std::pin::Pin;
 use tokio::io::AsyncWrite;
 
-use crate::utils::is_valid_username;
+use crate::{config::Config, utils::is_valid_username};
 
 #[derive(Clone)]
 pub struct Containers {
     docker: Docker,
+    config: Config,
 }
 
 pub struct Attach {
@@ -36,24 +37,13 @@ pub struct AttachOutput(
 );
 
 impl Containers {
-    pub fn new() -> Result<Self> {
-        #[cfg(target_os = "macos")]
-        let docker = Docker::connect_with_socket(
-            crate::config::DOCKER_SOCKET_MACOS,
-            30,
-            bollard::API_DEFAULT_VERSION,
-        )?;
-
-        #[cfg(not(target_os = "macos"))]
+    pub fn new(config: Config) -> Result<Self> {
         let docker = Docker::connect_with_local_defaults()?;
-
-        Ok(Self { docker })
+        Ok(Self { docker, config })
     }
 
     pub async fn init(&self) -> Result<()> {
         let _ = self.docker.info().await?;
-        std::fs::create_dir_all("./.files/home")?;
-        std::fs::create_dir_all("./.files/bin")?;
         Ok(())
     }
 
@@ -92,28 +82,19 @@ impl Containers {
 
     pub async fn create_container(&self, user: &str) -> Result<String> {
         assert!(is_valid_username(user));
-
         println!("creating container for {}", user);
         println!("name: {}{}", crate::config::DOCKER_CONTAINER_PREFIX, user);
 
+        let user_home = self.config.user_home(user).unwrap();
+        std::fs::create_dir_all(&user_home)?;
+
         let binds = vec![
+            format!("{}:/home/{}:rw", user_home.display(), user),
             format!(
-                "{}/.files/home/{}:/home/{}:rw",
-                std::env::current_dir()?.display(),
-                user,
-                user
-            ),
-            format!(
-                "{}/.files/bin:/usr/local/dawdle/bin:ro",
-                std::env::current_dir()?.display()
+                "{}:/usr/local/dawdle/bin:ro",
+                self.config.user_bin_dir().display()
             ),
         ];
-
-        std::fs::create_dir_all(format!(
-            "{}/.files/home/{}",
-            std::env::current_dir()?.display(),
-            user
-        ))?;
 
         let container = self
             .docker

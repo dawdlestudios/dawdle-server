@@ -1,4 +1,0 @@
-ssh_port=2222
-ssh_interface="127.0.0.1"
-www_port=8008
-www_interface="127.0.0.1"

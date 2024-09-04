@@ -1,0 +1,15 @@
+[fs]
+user_dir="./.dawdle/users"
+data_dir="./.dawdle/data"
+
+[ssh]
+port=2222
+interface="127.0.0.1"
+
+[www]
+port=8008
+interface="127.0.0.1"
+
+[minecraft]
+rcon_api="https://minecraft.dawdle.space/rcon"
+rcon_password="password"

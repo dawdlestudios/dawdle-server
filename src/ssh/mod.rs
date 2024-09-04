@@ -4,6 +4,7 @@ mod sftp;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::containers::Containers;
+use ed25519_dalek::SecretKey;
 use eyre::{Ok, Result};
 use russh::server::Server;
 use russh_keys::key::KeyPair;
@@ -30,19 +31,19 @@ impl SshServer {
     }
 
     pub fn get_key(&self) -> Result<KeyPair> {
-        // generate key in ./keys directory if it doesn't exist
-        let key = if !std::path::Path::new("./.keys/id_ed25519").exists() {
+        let path = self.state.config.ssh_key_path();
+
+        let key = if !path.exists() {
             let key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
-            std::fs::create_dir_all("./.keys")?;
-            std::fs::write("./.keys/id_ed25519", key.to_bytes())?;
+            std::fs::create_dir_all(path.parent().unwrap())?;
+            std::fs::write(&path, key.to_bytes())?;
             key
         } else {
-            let key = std::fs::read("./.keys/id_ed25519")?;
-            ed25519_dalek::SigningKey::from_bytes(&key.try_into().expect("key is 32 bytes"))
+            let key: SecretKey = std::fs::read(&path)?.try_into().expect("key is 32 bytes");
+            ed25519_dalek::SigningKey::from_bytes(&key)
         };
 
-        let key = KeyPair::Ed25519(key);
-        Ok(key)
+        Ok(KeyPair::Ed25519(key))
     }
 
     pub fn new(containers: Containers, state: crate::app::App) -> Self {
