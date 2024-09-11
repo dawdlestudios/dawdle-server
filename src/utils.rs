@@ -16,10 +16,10 @@ pub fn is_valid_username(username: &str) -> bool {
 
 pub fn is_valid_minecraft_username(username: &str) -> bool {
     !username.is_empty()
-        && username.len() < 16
+        && username.len() < 32
         && username
             .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
 }
 
 pub fn is_valid_project_path(path: &str) -> bool {

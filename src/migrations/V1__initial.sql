@@ -4,6 +4,7 @@ create table users (
     role text,
     created_at integer not null default (strftime('%s', 'now')),
 
+    minecraft_username text,
     minecraft_uuid text
 );
 

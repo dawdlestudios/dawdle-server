@@ -68,6 +68,7 @@ pub async fn run(state: App, addr: SocketAddr) -> Result<()> {
                 .route("/logout", post(api::logout))
                 .route("/me", get(api::get_me))
                 .route("/password", post(api::change_password))
+                .route("/minecraft", post(api::update_minecraft_username))
                 .route("/public_key", post(api::add_public_key))
                 .route("/public_key", delete(api::remove_public_key))
                 .route("/apply", post(api::apply))

@@ -4,11 +4,15 @@ use futures::{StreamExt, TryStreamExt};
 use libsql::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-use crate::utils::{hash_pw, is_valid_username, to_time};
+use crate::{
+    minecraft,
+    utils::{hash_pw, is_valid_username, to_time},
+};
 
 #[derive(Clone)]
 pub struct AppUsers {
     conn: Connection,
+    config: crate::config::Config,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,11 +21,14 @@ pub struct User {
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: time::OffsetDateTime,
     pub role: Option<String>,
+
+    pub minecraft_username: Option<String>,
+    pub minecraft_uuid: Option<String>,
 }
 
 impl AppUsers {
-    pub fn new(conn: Connection) -> Self {
-        Self { conn }
+    pub fn new(conn: Connection, config: crate::config::Config) -> Self {
+        Self { conn, config }
     }
 
     pub async fn all_usernames(&self) -> Result<Vec<String>> {
@@ -35,7 +42,9 @@ impl AppUsers {
     pub async fn all(&self) -> Result<Vec<User>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT username, created_at, role FROM users")
+            .prepare(
+                "SELECT username, created_at, minecraft_username, minecraft_uuid role FROM users",
+            )
             .await?;
 
         let rows = stmt.query(()).await?;
@@ -45,6 +54,8 @@ impl AppUsers {
                 username: row.get(0)?,
                 created_at: to_time(row.get(1)?)?,
                 role: row.get(2)?,
+                minecraft_username: row.get(3)?,
+                minecraft_uuid: row.get(4)?,
             })
         });
 
@@ -97,7 +108,7 @@ impl AppUsers {
     pub async fn get(&self, username: &str) -> Result<Option<User>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT created_at, role FROM users WHERE username = ?")
+            .prepare("SELECT created_at, role, minecraft_username, minecraft_uuid FROM users WHERE username = ?")
             .await?;
 
         let Ok(row) = stmt.query_row([username]).await else {
@@ -108,6 +119,8 @@ impl AppUsers {
             username: username.to_string(),
             created_at: to_time(row.get(0)?)?,
             role: row.get(1)?,
+            minecraft_username: row.get(2)?,
+            minecraft_uuid: row.get(3)?,
         };
 
         Ok(Some(user))
@@ -170,6 +183,40 @@ impl AppUsers {
                 params![role, username],
             )
             .await?;
+        Ok(())
+    }
+
+    pub async fn update_minecraft_username(
+        &self,
+        username: &str,
+        new_minecraft_username: Option<&str>,
+    ) -> Result<()> {
+        let user = self
+            .get(username)
+            .await?
+            .ok_or_else(|| eyre!("user not found"))?;
+
+        if user.minecraft_username == new_minecraft_username.map(str::to_string) {
+            return Ok(());
+        }
+
+        if let Some(old_uuid) = &user.minecraft_uuid {
+            minecraft::whitelist_remove(&old_uuid, &self.config.minecraft).await?;
+        }
+
+        let tx = self.conn.transaction().await?;
+
+        tx.execute(
+            "UPDATE users SET minecraft_username = ? WHERE username = ?",
+            params![new_minecraft_username, user.username.clone()],
+        )
+        .await?;
+
+        if let Some(minecraft_username) = new_minecraft_username {
+            minecraft::whitelist_add(&minecraft_username, &self.config.minecraft).await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 }

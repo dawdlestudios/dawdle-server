@@ -44,7 +44,7 @@ impl App {
         runner.set_migration_table_name("migrations");
         runner.run_async(&mut LibsqlConn(conn.clone())).await?;
 
-        let users = AppUsers::new(conn.clone());
+        let users = AppUsers::new(conn.clone(), config.clone());
         let applications = AppApplications::new(conn.clone(), config.clone());
         let sessions = AppSessions::new(conn.clone());
 

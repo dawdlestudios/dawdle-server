@@ -40,16 +40,8 @@ pub struct WebConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinecraftConfig {
-    pub rcon_api: String,
-    pub rcon_api_password: String,
-}
-
-fn default_base_dir() -> String {
-    std::env::current_dir()
-        .expect("failed to get current dir")
-        .to_str()
-        .expect("failed to convert cwd to str")
-        .to_string()
+    pub restadmin_url: String,
+    pub restadmin_token: String,
 }
 
 impl Config {

@@ -128,6 +128,7 @@ struct GuestbookEntryResponse {
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct MeResponse {
     username: String,
+    minecraft_username: Option<String>,
     public_keys: Vec<(String, String)>,
 }
 
@@ -141,9 +142,17 @@ pub async fn get_me(
         .await
         .api_internal_error()?;
 
+    let user = state
+        .users
+        .get(session.username())
+        .await
+        .api_internal_error()?
+        .api_not_found()?;
+
     Ok((Json(MeResponse {
         username: session.username().to_string(),
         public_keys: keys,
+        minecraft_username: user.minecraft_username,
     }))
     .into_response())
 }
@@ -294,4 +303,25 @@ pub async fn get_sites(State(state): State<App>) -> APIResult<impl IntoResponse>
         .collect::<serde_json::Value>();
 
     Ok((Json(sites)).into_response())
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateMinecraftUsernameRequest {
+    pub username: String,
+}
+
+pub async fn update_minecraft_username(
+    session: RequiredSession,
+    State(state): State<App>,
+    body: Json<UpdateMinecraftUsernameRequest>,
+) -> APIResult<impl IntoResponse> {
+    let username = body.0.username;
+
+    state
+        .users
+        .update_minecraft_username(&session.username(), Some(&username))
+        .await
+        .api_internal_error()?;
+
+    Ok((Json(json!({ "success": true }))).into_response())
 }

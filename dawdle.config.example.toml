@@ -6,10 +6,10 @@ data_dir="./.dawdle/data"
 port=2222
 interface="127.0.0.1"
 
-[www]
+[web]
 port=8008
 interface="127.0.0.1"
 
 [minecraft]
-rcon_api="https://minecraft.dawdle.space/rcon"
-rcon_password="password"
+restadmin_url="https://minecraft.dawdle.space/api"
+restadmin_token="password"
