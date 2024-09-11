@@ -114,10 +114,20 @@ pub fn create_dir_service(
                         Err(err) => return Ok(err.into_response()),
                     }
 
-                    let Ok(file) = tokio::fs::File::open(&fallback_file).await else {
+                    let Ok(mut file) = tokio::fs::File::open(&fallback_file).await else {
                         return Ok(fallback.into_response());
                     };
-                    (file, guess_mime(&fallback_file))
+
+                    let mut body = String::new();
+                    if file.read_to_string(&mut body).await.is_err() {
+                        body = "404 Not Found".to_string();
+                    };
+
+                    let mut resp = Response::builder().body(body.into()).unwrap();
+                    if !fallback_file.ends_with("index.html") {
+                        *resp.status_mut() = StatusCode::NOT_FOUND;
+                    }
+                    return Ok(resp);
                 }
                 Err(err) => return Ok(err.into_response()),
             };
