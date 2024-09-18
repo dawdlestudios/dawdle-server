@@ -319,7 +319,7 @@ pub async fn update_minecraft_username(
 
     state
         .users
-        .update_minecraft_username(&session.username(), Some(&username))
+        .update_minecraft_username(&session.username(), &username)
         .await
         .api_internal_error()?;
 

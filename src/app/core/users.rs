@@ -43,7 +43,7 @@ impl AppUsers {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT username, created_at, minecraft_username, minecraft_uuid role FROM users",
+                "SELECT username, created_at, role, minecraft_username, minecraft_uuid FROM users",
             )
             .await?;
 
@@ -189,34 +189,79 @@ impl AppUsers {
     pub async fn update_minecraft_username(
         &self,
         username: &str,
-        new_minecraft_username: Option<&str>,
+        new_minecraft_username: &str,
     ) -> Result<()> {
         let user = self
             .get(username)
             .await?
             .ok_or_else(|| eyre!("user not found"))?;
 
-        if user.minecraft_username == new_minecraft_username.map(str::to_string) {
-            return Ok(());
+        // if it's an uuid, error
+        if new_minecraft_username.replace("-", "").len() == 32 {
+            return Err(eyre!("minecraft username cannot be an UUID"));
+        }
+
+        let new_minecraft_user =
+            minecraft::whitelist_add(&new_minecraft_username, &self.config.minecraft).await?;
+
+        log::info!(
+            "minecraft user {} ({}) added to whitelist",
+            new_minecraft_user.name,
+            new_minecraft_user.id
+        );
+
+        // check if another user already has this minecraft username
+        let mut exists_stmt = self
+            .conn
+            .prepare("SELECT username FROM users WHERE minecraft_uuid = ?")
+            .await?;
+
+        let existing_user = exists_stmt
+            .query_row([new_minecraft_user.id.clone()])
+            .await
+            .map(|row| row.get::<String>(0));
+
+        match existing_user {
+            Ok(Ok(existing_user)) => {
+                if existing_user != username {
+                    return Err(eyre!("minecraft user already registered"));
+                }
+            }
+            Ok(_) => return Err(eyre!("unexpected error")),
+            Err(libsql::Error::QueryReturnedNoRows) => {}
+            Err(err) => return Err(err.into()),
         }
 
         if let Some(old_uuid) = &user.minecraft_uuid {
-            minecraft::whitelist_remove(&old_uuid, &self.config.minecraft).await?;
+            if old_uuid != &new_minecraft_user.id {
+                log::info!(
+                    "minecraft user {} ({}) removed from whitelist",
+                    user.minecraft_username.as_deref().unwrap_or("unknown"),
+                    old_uuid
+                );
+
+                minecraft::whitelist_remove(&old_uuid, &self.config.minecraft).await?;
+            }
         }
 
-        let tx = self.conn.transaction().await?;
+        self.conn
+            .execute(
+                "UPDATE users SET minecraft_username = ?, minecraft_uuid = ? WHERE username = ?",
+                params![
+                    new_minecraft_user.name.clone(),
+                    new_minecraft_user.id.clone(),
+                    username
+                ],
+            )
+            .await?;
 
-        tx.execute(
-            "UPDATE users SET minecraft_username = ? WHERE username = ?",
-            params![new_minecraft_username, user.username.clone()],
-        )
-        .await?;
+        log::info!(
+            "updated minecraft username for user {} to {} ({})",
+            username,
+            new_minecraft_user.name,
+            new_minecraft_user.id
+        );
 
-        if let Some(minecraft_username) = new_minecraft_username {
-            minecraft::whitelist_add(&minecraft_username, &self.config.minecraft).await?;
-        }
-
-        tx.commit().await?;
         Ok(())
     }
 }

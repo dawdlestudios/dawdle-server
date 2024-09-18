@@ -1,10 +1,10 @@
-use crate::{config::MinecraftConfig, utils::is_valid_minecraft_username};
+use crate::config::MinecraftConfig;
 use eyre::Result;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct MinecraftPlayer {
-    name: String,
-    id: String,
+    pub name: String,
+    pub id: String,
 }
 
 pub async fn connected_players(config: &MinecraftConfig) -> Result<Vec<MinecraftPlayer>> {
@@ -23,9 +23,6 @@ pub async fn connected_players(config: &MinecraftConfig) -> Result<Vec<Minecraft
 
 pub async fn whitelist_add(username: &str, config: &MinecraftConfig) -> Result<MinecraftPlayer> {
     let username = username.to_lowercase();
-    if !is_valid_minecraft_username(&username) {
-        return Err(eyre::eyre!("Invalid username"));
-    }
 
     let client = reqwest::Client::new();
     let res = client
@@ -45,9 +42,6 @@ pub async fn whitelist_remove(
     config: &MinecraftConfig,
 ) -> Result<MinecraftPlayer> {
     let username = username_or_uuid.to_lowercase();
-    if !is_valid_minecraft_username(&username) {
-        return Err(eyre::eyre!("Invalid username"));
-    }
 
     let client = reqwest::Client::new();
     let res = client
