@@ -22,11 +22,12 @@ async fn main() -> eyre::Result<()> {
     let config = config::Config::load()?;
     let app = app::App::new(config.clone()).await?;
 
+    if let Some((username, password)) = config.clone().create_admin_user {
+        let _ = app.users.create(&username, &password, Some("admin")).await;
+    }
+
     let containers = Containers::new(config)?;
     containers.init().await?;
-
-    #[cfg(debug_assertions)]
-    let _ = app.users.create("admin", "admin", Some("admin")).await;
 
     let api_addr = SocketAddr::new(
         IpAddr::from_str(&app.config.web.interface)?,

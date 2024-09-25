@@ -36,7 +36,7 @@ refinery::embed_migrations!("src/migrations");
 
 impl App {
     pub async fn new(config: Config) -> Result<Self> {
-        std::fs::create_dir_all(&config.db_path().parent().unwrap())?;
+        std::fs::create_dir_all(config.db_path().parent().unwrap())?;
         let db = libsql::Builder::new_local(config.db_path()).build().await?;
         let conn = db.connect()?;
 

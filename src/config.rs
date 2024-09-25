@@ -5,16 +5,13 @@ pub const DOCKER_IMAGE: &str = "ghcr.io/dawdlestudios/container";
 pub const DOCKER_TAG: &str = "latest";
 pub const DOCKER_CONTAINER_PREFIX: &str = "dawdle-home-";
 
-#[cfg(target_os = "macos")]
-pub const DOCKER_SOCKET_MACOS: &str = "unix:///Users/henry/.colima/default/docker.sock";
-const FILES_DEFAULT_HOME: &str = "default-home";
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub fs: FileSystemConfig,
     pub ssh: SSHConfig,
     pub web: WebConfig,
     pub minecraft: MinecraftConfig,
+    pub create_admin_user: Option<(String, String)>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

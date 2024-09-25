@@ -22,5 +22,5 @@ pub fn md_to_html(buf: &str) -> String {
         .build();
     plugins.render.codefence_syntax_highlighter = Some(&syntax_highlighter);
 
-    comrak::markdown_to_html_with_plugins(&buf, &options, &plugins)
+    comrak::markdown_to_html_with_plugins(buf, &options, &plugins)
 }

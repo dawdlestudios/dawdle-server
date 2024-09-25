@@ -176,7 +176,7 @@ pub async fn add_public_key(
 
     state
         .users
-        .add_public_key(session.username(), &name, &key)
+        .add_public_key(session.username(), &key, &name)
         .await
         .api_internal_error()?;
 
@@ -319,7 +319,7 @@ pub async fn update_minecraft_username(
 
     state
         .users
-        .update_minecraft_username(&session.username(), &username)
+        .update_minecraft_username(session.username(), &username)
         .await
         .api_internal_error()?;
 

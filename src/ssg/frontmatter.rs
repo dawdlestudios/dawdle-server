@@ -71,7 +71,7 @@ impl FrontMatter {
 
         if let Some(line) = lines.next() {
             if line == "---" {
-                while let Some(line) = lines.next() {
+                for line in lines {
                     if line == "---" {
                         break;
                     }

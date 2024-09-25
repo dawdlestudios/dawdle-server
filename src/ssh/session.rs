@@ -104,7 +104,8 @@ impl SshSession {
             .map(|(_name, key)| {
                 // kinda wastefull to parse it twice
                 // hopefully solved someday: https://github.com/warp-tech/russh/issues/140
-                let key = ssh_key::PublicKey::from_openssh(&key)
+                println!("key: {:?}", key);
+                let key = ssh_key::PublicKey::from_openssh(key)
                     .map_err(|e| eyre::eyre!("failed to parse public key: {}", e))?;
                 if !key.algorithm().is_ed25519() {
                     eyre::bail!("only ed25519 keys are supported")

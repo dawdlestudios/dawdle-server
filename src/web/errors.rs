@@ -44,10 +44,7 @@ impl<T, E: Into<eyre::Error>> ApiErrorExt<T> for Result<T, E> {
         self.map_err(|e| {
             let message = message.unwrap_or(status.canonical_reason().unwrap_or("unknown"));
             log::warn!("api error: {message}: {}", e.into());
-            APIError {
-                0: status,
-                1: message.to_string(),
-            }
+            APIError(status, message.to_string())
         })
     }
 }
@@ -57,10 +54,7 @@ impl<T> ApiErrorExt<T> for Option<T> {
         self.ok_or_else(|| {
             let message = message.unwrap_or(status.canonical_reason().unwrap_or("unknown"));
             log::warn!("api error: {message}");
-            APIError {
-                0: status,
-                1: message.to_string(),
-            }
+            APIError(status, message.to_string())
         })
     }
 }

@@ -357,7 +357,7 @@ async fn open_file(
     path_to_file: &PathBuf,
 ) -> Result<Option<(tokio::fs::File, Option<Mime>)>, APIError> {
     match tokio::fs::File::open(&path_to_file).await {
-        Ok(file) => Ok(Some((file, guess_mime(&path_to_file)))),
+        Ok(file) => Ok(Some((file, guess_mime(path_to_file)))),
         Err(err) => {
             if err.kind() != std::io::ErrorKind::NotFound {
                 return Err(APIError::new(
@@ -373,7 +373,7 @@ async fn open_file(
                 }
             }
 
-            return Ok(None);
+            Ok(None)
         }
     }
 }

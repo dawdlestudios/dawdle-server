@@ -35,8 +35,8 @@ pub async fn approve_application(
     body: Json<IdRequest>,
 ) -> APIResult<impl IntoResponse> {
     let id = body.0.id;
-    let token = state.applications.approve(&id).await.api_internal_error()?;
-    Ok((Json(json!({ "success": true, "token": token }))).into_response())
+    state.applications.approve(&id).await.api_internal_error()?;
+    Ok((Json(json!({ "success": true, "token": () }))).into_response())
 }
 
 pub async fn unapprove_application(
@@ -59,13 +59,13 @@ pub async fn update_application_username(
     body: Json<UsernameRequest>,
 ) -> APIResult<impl IntoResponse> {
     let id = body.0.id;
-    let username = state
+    state
         .applications
         .update_username(&id, &body.0.username)
         .await
         .api_internal_error()?;
 
-    Ok((Json(json!({ "success": true, "username": username }))).into_response())
+    Ok((Json(json!({ "success": true, "username": () }))).into_response())
 }
 
 pub async fn delete_application(

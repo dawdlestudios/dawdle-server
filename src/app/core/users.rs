@@ -59,7 +59,7 @@ impl AppUsers {
             })
         });
 
-        Ok(users.try_collect::<Vec<_>>().await?)
+        users.try_collect::<Vec<_>>().await
     }
 
     pub async fn verify_password(&self, username: &str, password: &str) -> Result<bool> {
@@ -139,7 +139,7 @@ impl AppUsers {
             let key = row.get::<String>(0)?;
             eyre::Ok((name, key))
         });
-        Ok(public_keys.try_collect::<Vec<_>>().await?)
+        public_keys.try_collect::<Vec<_>>().await
     }
 
     pub async fn add_public_key(&self, username: &str, public_key: &str, name: &str) -> Result<()> {
@@ -153,11 +153,11 @@ impl AppUsers {
         Ok(())
     }
 
-    pub async fn remove_public_key(&self, username: &str, public_key: &str) -> Result<()> {
+    pub async fn remove_public_key(&self, username: &str, name: &str) -> Result<()> {
         self.conn
             .execute(
-                "DELETE FROM user_public_keys WHERE username = ? AND public_key = ?",
-                [username, public_key],
+                "DELETE FROM user_public_keys WHERE username = ? AND name = ?",
+                [username, name],
             )
             .await?;
 
@@ -202,7 +202,7 @@ impl AppUsers {
         }
 
         let new_minecraft_user =
-            minecraft::whitelist_add(&new_minecraft_username, &self.config.minecraft).await?;
+            minecraft::whitelist_add(new_minecraft_username, &self.config.minecraft).await?;
 
         log::info!(
             "minecraft user {} ({}) added to whitelist",
@@ -240,7 +240,7 @@ impl AppUsers {
                     old_uuid
                 );
 
-                minecraft::whitelist_remove(&old_uuid, &self.config.minecraft).await?;
+                minecraft::whitelist_remove(old_uuid, &self.config.minecraft).await?;
             }
         }
 
