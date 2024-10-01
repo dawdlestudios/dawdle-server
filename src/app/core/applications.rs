@@ -1,5 +1,7 @@
+use std::path::Path;
+
 use cuid2::cuid;
-use eyre::{bail, Ok, OptionExt, Result};
+use eyre::{bail, OptionExt, Result};
 use futures::{StreamExt, TryStreamExt};
 use libsql::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -39,7 +41,7 @@ impl AppApplications {
 
         let applications = rows.into_stream().map(|row| {
             let row = row?;
-            Ok(Application {
+            eyre::Ok(Application {
                 id: row.get(0)?,
                 username: row.get(1)?,
                 email: row.get(2)?,
@@ -132,7 +134,7 @@ impl AppApplications {
 
         let mut stmt = tx
             .prepare(
-                "SELECT id, approved, claimed, username FROM applications WHERE claim_token = ?",
+                "SELECT application_id, approved, claimed, requested_username FROM applications WHERE claim_token = ?",
             )
             .await?;
         let application = stmt.query_row([token]).await?;
@@ -186,20 +188,26 @@ impl AppApplications {
         }
 
         log::info!(
-            "copying default home folder to {}",
+            "copying default home folder ({default_home:?}) to {}",
             user_home.to_str().unwrap()
         );
 
-        for entry in std::fs::read_dir(default_home)? {
-            let entry = entry?;
-            let path = entry.path();
-            let filename = path.file_name().unwrap();
-            let dest = user_home.join(filename);
-            if !dest.exists() {
-                std::fs::copy(path, dest)?;
-            }
-        }
-
+        copy_dir_all(default_home, &user_home)?;
         Ok(())
     }
+}
+
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+    std::fs::create_dir_all(&dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            std::fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+
+    Ok(())
 }

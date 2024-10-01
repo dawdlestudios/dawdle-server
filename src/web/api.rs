@@ -33,6 +33,7 @@ pub async fn login(
     body: axum::extract::Json<LoginRequest>,
 ) -> APIResult<impl IntoResponse> {
     let LoginRequest { username, password } = body.0;
+    let username = username.to_lowercase();
 
     let valid = state
         .users
